@@ -1,0 +1,40 @@
+# Render Blueprint — config pour quittances-app
+# Render lira ce fichier et créera automatiquement le service web.
+#
+# Pour le déployer :
+# 1. Poussez ce repo sur GitHub
+# 2. Sur render.com > New > Blueprint > connectez ce repo
+# 3. Render créera le service et vous demandera :
+#    - GMAIL_APP_PASSWORD : le mot de passe d'application 16 chars
+#    - PUBLIC_BASE_URL : l'URL publique Render (ex: https://quittances-app.onrender.com)
+#    - GOOGLE_CLIENT_ID et GOOGLE_CLIENT_SECRET : credentials OAuth Google (voir GOOGLE_OAUTH_SETUP.md)
+#    - GOOGLE_ALLOWED_EMAILS : emails autorisés, séparés par virgule (ex: "Jaguar2014@gmail.com,pat.gh777@gmail.com")
+services:
+  - type: web
+    name: quittances-app
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SMTP_USER
+        value: Jaguar2014@gmail.com
+      - key: SMTP_HOST
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: "465"
+      - key: GMAIL_APP_PASSWORD
+        sync: false   # sync: false = secret, à saisir dans le dashboard Render
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_ALLOWED_EMAILS
+        value: "Jaguar2014@gmail.com,pat.gh777@gmail.com"
+      - key: DATA_DIR
+        value: /data

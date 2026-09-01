@@ -1,0 +1,9 @@
+node_modules/
+.env
+data/
+*.log
+.DS_Store
+output-*.pdf
+test-send-*.js
+launch.bat
+.cu-journal/
