@@ -8,6 +8,7 @@
  *  - filename : nom de fichier slug-friendly
  */
 const path = require('path');
+const crypto = require('crypto');
 const pdfEngine = require('../pdf-engine');
 
 describe('Étape 2 — moteur PDF', () => {
@@ -117,6 +118,71 @@ describe('Étape 2 — moteur PDF', () => {
     test('gère accents', () => {
       const fn = pdfEngine.buildFilename({ locataire: 'Étienne Dupont', mois: 'Février', annee: 2026 });
       expect(fn).toBe('quittance-etienne-dupont-2026-02.pdf');
+    });
+  });
+
+  // ============ v2 : signature SHA-256 + modèle locataire étendu ============
+
+  describe('v2 — bloc signature SHA-256', () => {
+    test('calcule un hash SHA-256 hexadécimal de 64 chars sur le PDF', () => {
+      const pdf = pdfEngine.buildPdf({
+        proprietaire: 'Roland Ghaoui',
+        locataire: 'Romain Kretz',
+        adresse: '12 rue des Lilas 92120 Montrouge',
+        mois: 'Septembre',
+        annee: 2026,
+        loyerHC: 950,
+        charges: 100,
+        total: 1050,
+        lieu: 'Bahreïn',
+        dateEmission: '23 Septembre 2026',
+      });
+      const bytes = Buffer.isBuffer(pdf) ? pdf : Buffer.from(pdf);
+      const hash = crypto.createHash('sha256').update(bytes).digest('hex');
+      expect(hash).toMatch(/^[a-f0-9]{64}$/);
+    });
+
+    test('empreinte SHA-256 (16 chars hex) visible dans le PDF', () => {
+      const pdf = pdfEngine.buildPdf({
+        proprietaire: 'Roland Ghaoui',
+        locataire: 'Romain Kretz',
+        adresse: '12 rue des Lilas 92120 Montrouge',
+        mois: 'Septembre',
+        annee: 2026,
+        loyerHC: 950,
+        charges: 100,
+        total: 1050,
+        lieu: 'Bahreïn',
+        dateEmission: '23 Septembre 2026',
+      });
+      const bytes = Buffer.isBuffer(pdf) ? pdf : Buffer.from(pdf);
+      const text = bytes.toString('latin1');
+      // Mention "Empreinte SHA-256:" + 16 chars hex
+      expect(text).toMatch(/Empreinte SHA-256: [a-f0-9]{16}/);
+      // Mention loi ELAN
+      expect(text).toMatch(/loi ELAN/);
+    });
+
+    test('champs prenom et nom présents quand locataire est un objet structuré', () => {
+      const pdf = pdfEngine.buildPdf({
+        proprietaire: 'Roland Ghaoui',
+        locataire: { prenom: 'Romain', nom: 'Kretz', email: 'romain@example.com' },
+        adresse: '12 rue des Lilas 92120 Montrouge',
+        mois: 'Septembre',
+        annee: 2026,
+        loyerHC: 950,
+        charges: 100,
+        total: 1050,
+        lieu: 'Bahreïn',
+        dateEmission: '23 Septembre 2026',
+      });
+      const bytes = Buffer.isBuffer(pdf) ? pdf : Buffer.from(pdf);
+      const text = bytes.toString('latin1');
+      // Le prénom et le nom doivent apparaître dans le PDF
+      expect(text).toMatch(/Romain/);
+      expect(text).toMatch(/Kretz/);
+      // Et le nom complet "Romain Kretz" assemblé
+      expect(text).toMatch(/Romain Kretz/);
     });
   });
 });

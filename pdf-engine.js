@@ -13,6 +13,7 @@
  */
 
 const { jsPDF } = require('jspdf');
+const crypto = require('crypto');
 
 // ============ Conversion chiffres → lettres (français) ============
 
@@ -153,8 +154,13 @@ function buildPdf(data) {
   // Phrase de quittance (peutaller à la ligne)
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(11);
+  // Rétro-compat : si locataire est un objet avec prenom/nom, construire le nom complet ;
+  // sinon utiliser directement la chaîne fournie.
+  const locataireNomComplet = (typeof locataire === 'object' && locataire !== null)
+    ? [locataire.prenom, locataire.nom].filter(Boolean).join(' ').trim() || (locataire.nom || '')
+    : (locataire || '');
   const phrase = `Je soussigné ${proprietaire} propriétaire du logement désigné ci-dessus, `
-    + `déclare avoir reçu de ${locataire} la somme de ${numberToFrenchLetters(total)}, `
+    + `déclare avoir reçu de ${locataireNomComplet} la somme de ${numberToFrenchLetters(total)}, `
     + `au titre du paiement du loyer et des charges pour la période de location de tout le mois de ${mois} ${annee}.`;
   const phraseLines = doc.splitTextToSize(phrase, PAGE_W - MARGIN_L - MARGIN_R);
   doc.text(phraseLines, MARGIN_L, y);
@@ -204,9 +210,78 @@ function buildPdf(data) {
   const bottomY = 280;
   doc.text(mentionLines, MARGIN_L, bottomY);
 
+  // Bloc signature numérique SHA-256 (loi ELAN)
+  // Calcul du hash sur le buffer courant (avant injection du bloc → empreinte stable sur le contenu métier)
+  const interimBuf = Buffer.from(doc.output('arraybuffer'));
+  const sha256Hex = crypto.createHash('sha256').update(interimBuf).digest('hex');
+  addSignatureBlock(doc, {
+    proprietaire,
+    sha256Hex,
+    dateEmission,
+    lieu,
+  });
+
   // Retourne un Buffer (ArrayBuffer/Uint8Array de jsPDF.output)
   const out = doc.output('arraybuffer');
   return Buffer.from(out);
+}
+
+/**
+ * Bloc signature numérique conforme loi ELAN, en bas à droite du PDF.
+ * - Encadré 70×35mm à (x=120, y=240mm)
+ * - Trait horizontal 50mm pour signature
+ * - Nom du bailleur, mention "Signature numérique conforme loi ELAN"
+ * - Date+heure d'émission et empreinte SHA-256 tronquée (16 chars)
+ */
+function addSignatureBlock(doc, props) {
+  const {
+    proprietaire = 'Roland Ghaoui',
+    sha256Hex = '',
+    dateEmission = '',
+    lieu = '',
+  } = props || {};
+
+  const x = 120;
+  const y = 240;
+  const w = 70;
+  const h = 35;
+
+  // Encadré
+  doc.setDrawColor(0);
+  doc.setLineWidth(0.4);
+  doc.rect(x, y, w, h);
+
+  // Trait horizontal pour signature (50mm)
+  doc.setLineWidth(0.5);
+  doc.line(x + 10, y + 10, x + 10 + 50, y + 10);
+
+  // Contenu texte
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+
+  // Nom du bailleur
+  doc.setFont('helvetica', 'bold');
+  doc.text('Le bailleur', x + 4, y + 16);
+  doc.setFont('helvetica', 'normal');
+  doc.text(proprietaire, x + 4, y + 21);
+
+  // Mention loi ELAN
+  doc.setFontSize(7.5);
+  doc.text('Signature numerique conforme loi ELAN', x + 4, y + 26);
+
+  // Date + heure d'émission (date d'émission texte fournie, sinon maintenant)
+  const now = new Date();
+  const dd = String(now.getDate()).padStart(2, '0');
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const yyyy = now.getFullYear();
+  const hh = String(now.getHours()).padStart(2, '0');
+  const mn = String(now.getMinutes()).padStart(2, '0');
+  const emisLe = `Emis le ${dd}/${mm}/${yyyy} a ${hh}:${mn}`;
+  doc.text(emisLe, x + 4, y + 30);
+
+  // Empreinte SHA-256 tronquée à 16 chars
+  const short = (sha256Hex || '').slice(0, 16);
+  doc.text(`Empreinte SHA-256: ${short}`, x + 4, y + 33.5);
 }
 
 // ============ Nom de fichier ============
@@ -223,5 +298,6 @@ module.exports = {
   slugify,
   buildPdf,
   buildFilename,
+  addSignatureBlock,
   MOIS_FR,
 };

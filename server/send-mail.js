@@ -75,16 +75,21 @@ async function sendMail({ to, subject, body, pdfBase64, filename }) {
   }
   try {
     const transport = buildTransport();
+    // Empreinte SHA-256 du PDF (signature numérique, loi ELAN)
+    const pdfBuf = Buffer.from(pdfBase64, 'base64');
+    const sha256Hex = crypto.createHash('sha256').update(pdfBuf).digest('hex');
     const info = await transport.sendMail({
       from: SMTP_USER,
       to, subject, html: body,
       attachments: [{
         filename,
-        content: Buffer.from(pdfBase64, 'base64'),
+        content: pdfBuf,
         contentType: 'application/pdf',
+        // Header RFC pour exposer le hash aux clients mail (vérification externe)
+        headers: { 'X-PDF-SHA256': sha256Hex },
       }],
     });
-    return { ok: true, messageId: info.messageId, response: info.response };
+    return { ok: true, messageId: info.messageId, response: info.response, sha256: sha256Hex };
   } catch (e) {
     return { ok: false, error: e.message };
   }
@@ -149,8 +154,10 @@ function buildApp() {
   app.use(cors());
   app.use(express.json({ limit: '5mb' }));
 
-  // Sert le frontend
+  // Sert le frontend (racine = fichier HTML, le reste via static)
   app.get('/', (req, res) => res.sendFile(path.join(ROOT, 'quittances-app.html')));
+  // Sert les fichiers statiques (manifest.webmanifest, sw.js, icons/, etc.)
+  app.use(express.static(ROOT, { extensions: ['html'] }));
 
   // Health
   app.get('/api/health', (req, res) => res.json({
@@ -262,8 +269,234 @@ function buildApp() {
     res.status(result.ok ? 200 : 500).json(result);
   });
 
+  // ============ API Template (Brief B) ============
+
+  const DEFAULT_TEMPLATE = {
+    proprietaire: {
+      nom: 'Roland Ghaoui',
+      adresse: '92120 Montrouge, France',
+      telephone: '+33 6 XX XX XX XX',
+      email: 'roland@example.com',
+    },
+    mentionLegale: "Cette quittance annule tous les reçus qui auraient pu être établis précédemment en cas de paiement partiel du montant du présent terme. Elle est à conserver pendant trois ans par le locataire (article 7-1 de la loi n° 89-462 du 6 juillet 1989).",
+    lieuDefaut: 'Bahreïn',
+    signatureLabel: 'Le bailleur',
+    signatureLoiElan: true,
+    logoUrl: null,
+  };
+
+  function sanitizeTemplate(input) {
+    const t = input && typeof input === 'object' ? input : {};
+    const p = (t.proprietaire && typeof t.proprietaire === 'object') ? t.proprietaire : {};
+    return {
+      proprietaire: {
+        nom: typeof p.nom === 'string' ? p.nom : DEFAULT_TEMPLATE.proprietaire.nom,
+        adresse: typeof p.adresse === 'string' ? p.adresse : DEFAULT_TEMPLATE.proprietaire.adresse,
+        telephone: typeof p.telephone === 'string' ? p.telephone : DEFAULT_TEMPLATE.proprietaire.telephone,
+        email: typeof p.email === 'string' ? p.email : DEFAULT_TEMPLATE.proprietaire.email,
+      },
+      mentionLegale: typeof t.mentionLegale === 'string' ? t.mentionLegale : DEFAULT_TEMPLATE.mentionLegale,
+      lieuDefaut: typeof t.lieuDefaut === 'string' ? t.lieuDefaut : DEFAULT_TEMPLATE.lieuDefaut,
+      signatureLabel: typeof t.signatureLabel === 'string' ? t.signatureLabel : DEFAULT_TEMPLATE.signatureLabel,
+      signatureLoiElan: t.signatureLoiElan === false ? false : true,
+      logoUrl: (typeof t.logoUrl === 'string' && t.logoUrl) ? t.logoUrl : null,
+    };
+  }
+
+  app.get('/api/template', authMiddleware, (req, res) => {
+    const t = readJson('template.json', null);
+    res.json(t || DEFAULT_TEMPLATE);
+  });
+
+  app.post('/api/template', authMiddleware, (req, res) => {
+    const clean = sanitizeTemplate(req.body);
+    writeJson('template.json', clean);
+    res.json({ ok: true, template: clean });
+  });
+
+  // ============ API Paiements (Brief B) ============
+
+  function readPaiements() { return readJson('paiements.json', []); }
+  function writePaiements(list) { writeJson('paiements.json', list); }
+
+  function makePmtId(locataireId, mois, annee) {
+    const slug = String(mois).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    return `pmt_${annee}_${slug}_${crypto.randomBytes(3).toString('hex')}`;
+  }
+
+  app.get('/api/paiements/:locataireId', authMiddleware, (req, res) => {
+    const lid = String(req.params.locataireId || '');
+    const all = readPaiements();
+    const list = all.filter((p) => p.locataireId === lid);
+    res.json(list);
+  });
+
+
+  app.post('/api/paiements', authMiddleware, (req, res) => {
+    const body = req.body || {};
+    const { locataireId, mois, annee, total, statut, datePaiement, dateEnvoiQuittance, pdfSha256, id } = body;
+    if (!locataireId || !mois || !annee || !statut) {
+      return res.status(400).json({ ok: false, error: 'Champs requis : locataireId, mois, annee, statut' });
+    }
+    const VALID_STATUTS = ['en_attente', 'paye', 'impaye', 'quittance_envoyee'];
+    if (!VALID_STATUTS.includes(statut)) {
+      return res.status(400).json({ ok: false, error: 'statut invalide (attendu: ' + VALID_STATUTS.join(', ') + ')' });
+    }
+    const all = readPaiements();
+    const existingIdx = id
+      ? all.findIndex((p) => p.id === id)
+      : all.findIndex((p) => p.locataireId === locataireId && p.mois === mois && p.annee === annee);
+    const entry = { id: existingIdx >= 0 ? all[existingIdx].id : makePmtId(locataireId, mois, annee), locataireId, mois, annee, statut };
+    if (typeof total === 'number') entry.total = total;
+    if (datePaiement) entry.datePaiement = datePaiement;
+    if (dateEnvoiQuittance) entry.dateEnvoiQuittance = dateEnvoiQuittance;
+    if (pdfSha256) entry.pdfSha256 = pdfSha256;
+    if (existingIdx >= 0) all[existingIdx] = entry; else all.push(entry);
+    writePaiements(all);
+    res.json({ ok: true, paiement: entry });
+  });
+
+  // ============ API Envoi en un clic (Brief C) ============
+
+  // Résout un locataireId (string) vers l'objet locataire correspondant.
+  // Le frontend peut envoyer :
+  //   - un id custom (ex: "loc_2024_01_xyz") → match direct sur .id
+  //   - un id de fallback côté UI ("loc_idx_<N>") → match par index dans le tableau
+  function findLocataire(locataireId) {
+    const list = readJson('locataires.json', []);
+    const direct = list.find(x => x && x.id === locataireId);
+    if (direct) return direct;
+    const m = typeof locataireId === 'string' && locataireId.match(/^loc_idx_(\d+)$/);
+    if (m) {
+      const idx = parseInt(m[1], 10);
+      if (idx >= 0 && idx < list.length) return list[idx];
+    }
+    return null;
+  }
+
+  function adresseLocataire(l) {
+    if (!l) return '';
+    if (typeof l.adresse === 'string') return l.adresse;
+    if (l.adresse && typeof l.adresse === 'object') {
+      const a = l.adresse;
+      return [a.rue, a.complement, [a.cp, a.ville].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+    }
+    return '';
+  }
+
+  app.post('/api/paiements/envoyer', authMiddleware, async (req, res) => {
+    const body = req.body || {};
+    const { paiementId, locataireId } = body;
+    if (!paiementId || !locataireId) {
+      return res.status(400).json({ ok: false, error: 'Champs requis : paiementId, locataireId' });
+    }
+
+    // 1. Trouver le paiement
+    const allPaiements = readPaiements();
+    const pmtIdx = allPaiements.findIndex(p => p.id === paiementId);
+    if (pmtIdx < 0) {
+      return res.status(404).json({ ok: false, error: 'Paiement introuvable : ' + paiementId });
+    }
+    const paiement = allPaiements[pmtIdx];
+
+    // 2. Trouver le locataire
+    const loc = findLocataire(locataireId);
+    if (!loc) {
+      return res.status(404).json({ ok: false, error: 'Locataire introuvable : ' + locataireId });
+    }
+    if (!loc.email) {
+      return res.status(400).json({ ok: false, error: 'Locataire sans email' });
+    }
+
+    // 3. Charger le template (propriétaire + lieuDefaut)
+    const tpl = readJson('template.json', null) || DEFAULT_TEMPLATE;
+
+    // 4. Construire les données du PDF
+    const loyerHC = (typeof loc.loyerHC === 'number') ? loc.loyerHC : 0;
+    const charges = (typeof loc.charges === 'number') ? loc.charges : 0;
+    const total = (typeof paiement.total === 'number') ? paiement.total : (loyerHC + charges);
+
+    const dateEm = new Date();
+    const dd = String(dateEm.getDate()).padStart(2, '0');
+    const mm = String(dateEm.getMonth() + 1).padStart(2, '0');
+    const yyyy = dateEm.getFullYear();
+    const dateEmission = `${dd}/${mm}/${yyyy}`;
+
+    const pdfData = {
+      proprietaire: (tpl.proprietaire && tpl.proprietaire.nom) || DEFAULT_TEMPLATE.proprietaire.nom,
+      locataire: (loc.prenom || loc.nom) ? { prenom: loc.prenom || '', nom: loc.nom || '' } : (loc.nom || ''),
+      adresse: adresseLocataire(loc),
+      mois: paiement.mois,
+      annee: paiement.annee,
+      loyerHC,
+      charges,
+      total,
+      lieu: tpl.lieuDefaut || DEFAULT_TEMPLATE.lieuDefaut,
+      dateEmission,
+    };
+
+    // 5. Générer le PDF
+    let pdfBuffer;
+    try {
+      const pdfEngine = require('../pdf-engine');
+      pdfBuffer = pdfEngine.buildPdf(pdfData);
+    } catch (e) {
+      return res.status(500).json({ ok: false, error: 'Génération PDF échouée : ' + e.message });
+    }
+
+    // 6. SHA-256 du PDF
+    const sha256 = crypto.createHash('sha256').update(pdfBuffer).digest('hex');
+
+    // 7. Nom de fichier
+    let filename;
+    try {
+      const pdfEngine = require('../pdf-engine');
+      filename = pdfEngine.buildFilename({
+        locataire: (loc.prenom ? loc.prenom + ' ' : '') + (loc.nom || ''),
+        mois: paiement.mois,
+        annee: paiement.annee,
+      });
+    } catch (e) {
+      filename = `quittance-${paiement.annee}-${String(paiement.mois).toLowerCase()}.pdf`;
+    }
+
+    // 8. Envoi SMTP (sendMail attend pdfBase64 — on encode depuis le buffer généré)
+    const pdfBase64 = pdfBuffer.toString('base64');
+    const mailResult = await sendMail({
+      to: loc.email,
+      subject: `Quittance de loyer — ${paiement.mois} ${paiement.annee}`,
+      body: '<p>Bonjour,</p><p>Veuillez trouver ci-joint votre quittance de loyer pour ' + paiement.mois + ' ' + paiement.annee + '.</p><p>Cordialement</p>',
+      pdfBase64,
+      filename,
+    });
+
+    if (!mailResult.ok) {
+      return res.status(500).json({ ok: false, error: mailResult.error || 'Échec envoi SMTP' });
+    }
+
+    // 9. Mettre à jour le paiement
+    const updated = {
+      ...paiement,
+      statut: 'quittance_envoyee',
+      dateEnvoiQuittance: new Date().toISOString(),
+      pdfSha256: sha256,
+    };
+    allPaiements[pmtIdx] = updated;
+    writePaiements(allPaiements);
+
+    // 10. Retour
+    res.json({
+      ok: true,
+      sha256,
+      filename,
+      messageId: mailResult.messageId,
+      paiement: updated,
+    });
+  });
+
   return app;
 }
+
 
 if (require.main === module) {
   ensureDataDir();

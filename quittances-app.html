@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Quittances de Loyer</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#2c5aa0">
+<meta name="apple-mobile-web-app-capable" content="yes">
 <style>
   body { font-family: 'Segoe UI', Arial, sans-serif; max-width: 900px; margin: 20px auto; padding: 0 20px; color: #222; background: #f7f7f7; }
   h1 { color: #2c5aa0; margin-bottom: 4px; }
@@ -40,6 +43,31 @@
   .total-line { font-size: 18px; font-weight: bold; color: #2c5aa0; margin-top: 12px; padding: 12px; background: #e8f0fe; border-radius: 6px; }
   .preview { padding: 20px; background: #fafafa; border: 1px dashed #ccc; border-radius: 6px; max-height: 400px; overflow: auto; white-space: pre-wrap; font-family: monospace; }
   .hidden { display: none !important; }
+
+  /* Brief B — Template tab + locataires expandables + paiements */
+  .loc-card { background: #fafafa; border: 1px solid #eee; border-radius: 6px; margin-bottom: 10px; padding: 12px; }
+  .loc-card-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .loc-card-header strong { color: #2c5aa0; font-size: 15px; }
+  .loc-card-toggle { background: #6c757d; color: white; border: none; padding: 6px 12px; font-size: 12px; border-radius: 4px; cursor: pointer; }
+  .loc-card-toggle:hover { background: #545b62; }
+  .loc-card-body { display: none; margin-top: 12px; }
+  .loc-card.expanded .loc-card-body { display: block; }
+  .pmt-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+  .pmt-table th, .pmt-table td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; }
+  .pmt-table th { background: #e8f0fe; color: #2c5aa0; font-weight: 600; }
+  .pmt-table tr.statut-paye td { background: #f0fff4; }
+  .pmt-table tr.statut-impaye td { background: #fff5f5; }
+  .pmt-table tr.statut-quittance_envoyee td { background: #f0f7ff; }
+  .pmt-table tr.statut-en_attente td { background: #fffaf0; }
+  .pmt-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+  .pmt-actions button { font-size: 11px; padding: 4px 8px; border: 1px solid #ccc; background: white; border-radius: 3px; cursor: pointer; }
+  .pmt-actions button:hover { background: #f0f0f0; }
+  .pmt-empty { color: #888; font-style: italic; padding: 8px 0; font-size: 13px; }
+  .template-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
+  .template-row > div { flex: 1; min-width: 200px; }
+  .checkbox-line { display: flex; align-items: center; gap: 8px; margin: 12px 0; }
+  .checkbox-line input[type="checkbox"] { width: auto; }
+  textarea { min-height: 80px; resize: vertical; }
 </style>
 </head>
 <body>
@@ -69,18 +97,32 @@
       <button class="tab-btn active" data-tab="locataires">Locataires</button>
       <button class="tab-btn" data-tab="quittance">Nouvelle quittance</button>
       <button class="tab-btn" data-tab="historique">Historique</button>
+      <button class="tab-btn" data-tab="template">Template</button>
     </nav>
 
     <section id="panel-locataires" class="tab-panel active">
       <div class="card">
         <h2>Ajouter un locataire</h2>
         <form id="form-locator">
+          <label for="prenom">Prénom du locataire</label>
+          <input type="text" id="prenom" name="prenom" placeholder="ex : Romain">
           <label for="nom">Nom du locataire</label>
-          <input type="text" id="nom" name="nom" placeholder="ex : Romain Kretz" required>
+          <input type="text" id="nom" name="nom" placeholder="ex : Kretz" required>
           <label for="email">Email</label>
           <input type="email" id="email" name="email" placeholder="ex : romain@example.com" required>
-          <label for="adresse">Adresse du bien loué</label>
-          <textarea id="adresse" name="adresse" rows="2" placeholder="ex : Bloc 8, rdc gauche 92120 Montrouge" required></textarea>
+          <label for="adresse-rue">Adresse du bien loué</label>
+          <input type="text" id="adresse-rue" name="adresse-rue" placeholder="ex : 12 rue des Lilas" style="margin-bottom:6px">
+          <input type="text" id="adresse-complement" name="adresse-complement" placeholder="Complément (ex : Bâtiment B, 3e étage)" style="margin-bottom:6px">
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <input type="text" id="adresse-cp" name="adresse-cp" placeholder="CP (ex : 92120)" style="flex:1;min-width:100px;max-width:160px">
+            <input type="text" id="adresse-ville" name="adresse-ville" placeholder="Ville (ex : Montrouge)" style="flex:2;min-width:180px">
+          </div>
+          <div class="form-row" style="margin-top:12px">
+            <div><label for="loyer-hc-default">Loyer HC par défaut (€)</label><input type="number" id="loyer-hc-default" min="0" step="0.01" value="950"></div>
+            <div><label for="charges-default">Charges par défaut (€)</label><input type="number" id="charges-default" min="0" step="0.01" value="100"></div>
+            <div><label for="date-entree">Date d'entrée</label><input type="date" id="date-entree"></div>
+            <div><label for="bail-ref">Référence bail</label><input type="text" id="bail-ref" placeholder="ex : B-2024-01"></div>
+          </div>
           <p style="margin-top:16px"><button type="submit" class="primary">Ajouter le locataire</button></p>
         </form>
       </div>
@@ -131,6 +173,52 @@
         <h2>Quittances envoyées</h2>
         <ul id="historique-list" class="locataires"></ul>
         <p id="empty-historique" class="empty-msg">Aucune quittance envoyée.</p>
+      </div>
+    </section>
+
+    <section id="panel-template" class="tab-panel">
+      <div class="card">
+        <h2>Éditeur de template de quittance</h2>
+        <p style="color:#666;font-size:13px">Configurez l'en-tête bailleur, la mention légale, le lieu par défaut et la signature numérique.</p>
+
+        <h3 style="margin-top:20px;color:#2c5aa0">En-tête bailleur</h3>
+        <div class="template-row">
+          <div>
+            <label for="tpl-prop-nom">Nom complet</label>
+            <input type="text" id="tpl-prop-nom" placeholder="Roland Ghaoui">
+          </div>
+          <div>
+            <label for="tpl-prop-email">Email</label>
+            <input type="email" id="tpl-prop-email" placeholder="roland@example.com">
+          </div>
+        </div>
+        <label for="tpl-prop-adresse">Adresse bailleur</label>
+        <input type="text" id="tpl-prop-adresse" placeholder="92120 Montrouge, France">
+        <label for="tpl-prop-tel">Téléphone</label>
+        <input type="text" id="tpl-prop-tel" placeholder="+33 6 XX XX XX XX">
+
+        <h3 style="margin-top:24px;color:#2c5aa0">Mention légale personnalisable</h3>
+        <label for="tpl-mention">Texte (article 7-1 loi 89-462)</label>
+        <textarea id="tpl-mention"></textarea>
+
+        <h3 style="margin-top:24px;color:#2c5aa0">Lieu par défaut</h3>
+        <label for="tpl-lieu">Lieu (ex : Bahreïn, Montrouge…)</label>
+        <input type="text" id="tpl-lieu" placeholder="Bahreïn">
+
+        <h3 style="margin-top:24px;color:#2c5aa0">Pied de page signature</h3>
+        <label for="tpl-logo">URL du logo bailleur (optionnel)</label>
+        <input type="text" id="tpl-logo" placeholder="https://... ou laissez vide">
+        <div class="checkbox-line">
+          <input type="checkbox" id="tpl-elan" checked>
+          <label for="tpl-elan" style="margin:0;font-weight:normal">Afficher « Signature numérique conforme loi ELAN »</label>
+        </div>
+        <label for="tpl-sig-label" style="margin-top:8px">Label signature (ex : « Le bailleur »)</label>
+        <input type="text" id="tpl-sig-label" placeholder="Le bailleur">
+
+        <p style="margin-top:24px">
+          <button id="btn-tpl-save" class="primary">Enregistrer</button>
+          <button id="btn-tpl-reset" class="secondary">Réinitialiser aux valeurs par défaut</button>
+        </p>
       </div>
     </section>
   </div>
@@ -205,6 +293,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
     if (btn.dataset.tab === 'quittance') populateLocataireSelect();
     if (btn.dataset.tab === 'historique') renderHistorique();
+    if (btn.dataset.tab === 'template') { fillTemplateForm(); }
   });
 });
 
@@ -226,9 +315,310 @@ function renderLocataires() {
   if (locataires.length === 0) { empty.style.display = 'block'; return; }
   empty.style.display = 'none';
   locataires.forEach((l, i) => {
+    const nomComplet = l.prenom ? (l.prenom + ' ' + l.nom).trim() : l.nom;
+    const adresseStr = (typeof l.adresse === 'object' && l.adresse)
+      ? [l.adresse.rue, l.adresse.complement, [l.adresse.cp, l.adresse.ville].filter(Boolean).join(' ')].filter(Boolean).join(', ')
+      : (l.adresse || '');
+    const loyerHC = (typeof l.loyerHC === 'number') ? l.loyerHC : 0;
+    const charges = (typeof l.charges === 'number') ? l.charges : 0;
+    const total = loyerHC + charges;
+    const totalFmt = total.toFixed(2).replace('.', ',') + ' €';
+
     const li = document.createElement('li');
-    li.innerHTML = `<strong>${l.nom}</strong> — ${l.email}<br><em style="color:#666">${l.adresse}</em>`;
+    li.className = 'loc-card';
+    li.dataset.idx = i;
+    // ID stable pour le suivi paiements : si pas d'id, on utilise l'index (rétro-compat)
+    const locId = l.id || ('loc_idx_' + i);
+    li.dataset.locId = locId;
+
+    const extras = [];
+    if (loyerHC) extras.push('Loyer HC ' + loyerHC + '€');
+    if (charges) extras.push('Charges ' + charges + '€');
+    if (l.dateEntree) extras.push('Entrée ' + l.dateEntree);
+    if (l.bailRef) extras.push('Bail ' + l.bailRef);
+
+    li.innerHTML = `
+      <div class="loc-card-header">
+        <div>
+          <strong>${escapeHtml(nomComplet)}</strong>
+          <span style="color:#666"> — ${escapeHtml(l.email || '')}</span><br>
+          <em style="color:#666;font-style:normal;font-size:13px">${escapeHtml(adresseStr)}</em>
+          ${extras.length ? `<br><small style="color:#888">${extras.map(escapeHtml).join(' · ')}</small>` : ''}
+          <div style="margin-top:6px"><strong style="color:#2c5aa0">Total CC : ${totalFmt}</strong></div>
+        </div>
+        <button type="button" class="loc-card-toggle" data-action="toggle-paiements">Voir historique ▾</button>
+      </div>
+      <div class="loc-card-body">
+        <div class="pmt-loading" style="color:#888;font-size:12px;padding:6px 0">Chargement du suivi paiements…</div>
+      </div>
+    `;
+
+    // Event toggle : charge le suivi paiements au premier dépliage
+    const toggle = li.querySelector('.loc-card-toggle');
+    const body = li.querySelector('.loc-card-body');
+    let loaded = false;
+    toggle.addEventListener('click', async () => {
+      const expanded = li.classList.toggle('expanded');
+      toggle.textContent = expanded ? 'Masquer historique ▴' : 'Voir historique ▾';
+      if (expanded && !loaded) {
+        loaded = true;
+        await loadPaiementsFor(li, locId, l);
+      }
+    });
+
     ul.appendChild(li);
+  });
+}
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+const STATUT_LABEL = {
+  en_attente: '⏳ En attente',
+  paye: '✅ Payé',
+  impaye: '❌ Impayé',
+  quittance_envoyee: '📧 Quittance envoyée',
+};
+
+async function loadPaiementsFor(cardEl, locId, loc) {
+  const body = cardEl.querySelector('.loc-card-body');
+  try {
+    // Auto-fill Brief C : génère les entrées en_attente manquantes entre dateEntree et mois courant
+    await autoFillMoisManquants(body, locId, loc);
+    const list = await api('GET', '/api/paiements/' + encodeURIComponent(locId));
+    renderPaiementsTable(body, list, locId, loc);
+  } catch (e) {
+    body.innerHTML = '<div class="pmt-empty">Erreur chargement paiements : ' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+// Brief C : génère les mois manquants entre dateEntree et le mois courant.
+// Si le locataire n'a pas de dateEntree, ne rien faire (cas legacy).
+async function autoFillMoisManquants(body, locId, loc) {
+  if (!loc || !loc.dateEntree) return;
+  const MOIS = MOIS_INDEX;
+  const parts = String(loc.dateEntree).split('-');
+  if (parts.length < 2) return;
+  const startYear = parseInt(parts[0], 10);
+  const startMonth = parseInt(parts[1], 10) - 1; // 0-indexed
+  if (isNaN(startYear) || isNaN(startMonth)) return;
+
+  const now = new Date();
+  const endYear = now.getFullYear();
+  const endMonth = now.getMonth(); // 0-indexed (inclus)
+
+  const existing = await api('GET', '/api/paiements/' + encodeURIComponent(locId));
+  const existingKeys = new Set((Array.isArray(existing) ? existing : []).map(p => p.mois + '|' + p.annee));
+
+  const loyerHC = (typeof loc.loyerHC === 'number') ? loc.loyerHC : 0;
+  const charges = (typeof loc.charges === 'number') ? loc.charges : 0;
+  const total = loyerHC + charges;
+
+  for (let y = startYear; y <= endYear; y++) {
+    const fromM = (y === startYear) ? startMonth : 0;
+    const toM = (y === endYear) ? endMonth : 11;
+    for (let m = fromM; m <= toM; m++) {
+      const moisName = MOIS[m];
+      const key = moisName + '|' + y;
+      if (existingKeys.has(key)) continue;
+      try {
+        await api('POST', '/api/paiements', {
+          locataireId: locId,
+          mois: moisName,
+          annee: y,
+          total,
+          statut: 'en_attente',
+        });
+      } catch (e) {
+        // on continue même en cas d'erreur sur un mois
+        console.warn('autoFill mois', key, 'échec:', e.message);
+      }
+    }
+  }
+}
+
+// Brief C : bouton "Envoyer en un clic" — orchestre PDF + SHA-256 + SMTP via /api/paiements/envoyer
+async function envoyerQuittanceEnUnClic(paiementId, locataireId, btn) {
+  if (btn) {
+    btn.disabled = true;
+    btn.dataset.orig = btn.dataset.orig || btn.textContent;
+    btn.textContent = '⏳ Envoi…';
+  }
+  try {
+    const r = await api('POST', '/api/paiements/envoyer', { paiementId, locataireId });
+    const short = (r.sha256 || '').slice(0, 8);
+    showToast('✅ Quittance envoyée (' + short + '…) à ' + locataireId, false);
+    return r;
+  } catch (e) {
+    showToast('❌ ' + e.message, true);
+    throw e;
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = btn.dataset.orig || '📧 Envoyer';
+    }
+  }
+}
+
+function renderPaiementsTable(body, list, locId, loc) {
+  const total = (typeof loc.loyerHC === 'number' ? loc.loyerHC : 0) + (typeof loc.charges === 'number' ? loc.charges : 0);
+  const totalFmt = total.toFixed(2).replace('.', ',') + ' €';
+
+  // Si pas de paiements, on propose juste un bouton d'ajout
+  if (!Array.isArray(list) || list.length === 0) {
+    body.innerHTML = `
+      <p class="pmt-empty">Aucun paiement enregistré pour ce locataire.</p>
+      <button type="button" class="primary" data-action="add-pmt" style="font-size:12px;padding:6px 12px">+ Ajouter un paiement</button>
+    `;
+    body.querySelector('[data-action="add-pmt"]').addEventListener('click', () => {
+      promptAddPaiement(body, locId, loc, null);
+    });
+    return;
+  }
+
+  let html = `<table class="pmt-table"><thead><tr>
+    <th>Mois</th><th>Année</th><th>Total</th><th>Statut</th>
+    <th>Date paiement</th><th>Quittance envoyée</th><th>Actions</th>
+  </tr></thead><tbody>`;
+  list.forEach(p => {
+    html += `<tr class="statut-${escapeHtml(p.statut)}" data-pmt-id="${escapeHtml(p.id)}">
+      <td>${escapeHtml(p.mois)}</td>
+      <td>${escapeHtml(String(p.annee))}</td>
+      <td>${escapeHtml((p.total != null ? p.total : total).toFixed(2).replace('.', ',') + ' €')}</td>
+      <td>${escapeHtml(STATUT_LABEL[p.statut] || p.statut)}</td>
+      <td>${escapeHtml(p.datePaiement || '–')}</td>
+      <td>${escapeHtml(p.dateEnvoiQuittance ? new Date(p.dateEnvoiQuittance).toLocaleDateString('fr-FR') : '–')}</td>
+      <td class="pmt-actions"></td>
+    </tr>`;
+  });
+  html += `</tbody></table>
+    <p style="margin-top:10px"><button type="button" data-action="add-pmt" style="font-size:12px;padding:6px 12px">+ Ajouter un paiement</button></p>`;
+  body.innerHTML = html;
+
+  // Bind actions par ligne
+  body.querySelectorAll('tr[data-pmt-id]').forEach(tr => {
+    const pmtId = tr.dataset.pmtId;
+    const pmt = list.find(x => x.id === pmtId);
+    const actionsTd = tr.querySelector('.pmt-actions');
+    // Bouton "Marquer payé" si pas déjà payé/envoyé
+    if (pmt.statut !== 'paye' && pmt.statut !== 'quittance_envoyee') {
+      const b1 = document.createElement('button');
+      b1.type = 'button';
+      b1.textContent = '✏️ Marquer payé';
+      b1.addEventListener('click', () => updatePaiement(body, locId, loc, { ...pmt, statut: 'paye', datePaiement: new Date().toISOString().slice(0, 10) }));
+      actionsTd.appendChild(b1);
+    }
+    // Bouton "Envoyer" si pas encore envoyé (Brief C : orchestre PDF + SHA-256 + SMTP)
+        if (pmt.statut !== 'quittance_envoyee') {
+          const b2 = document.createElement('button');
+          b2.type = 'button';
+          b2.className = 'btn-envoyer-un-clic';
+          b2.dataset.paiementId = pmt.id;
+          b2.dataset.locataireId = locId;
+          b2.textContent = '📧 Envoyer';
+          b2.addEventListener('click', async () => {
+            try {
+              await envoyerQuittanceEnUnClic(pmt.id, locId, b2);
+              const list = await api('GET', '/api/paiements/' + encodeURIComponent(locId));
+              renderPaiementsTable(body, list, locId, loc);
+            } catch (e) { /* toast déjà affiché */ }
+          });
+          actionsTd.appendChild(b2);
+        }
+        // Bouton "Renvoyer" si déjà envoyé
+        if (pmt.statut === 'quittance_envoyee') {
+          const b3 = document.createElement('button');
+          b3.type = 'button';
+          b3.className = 'btn-renvoyer';
+          b3.dataset.paiementId = pmt.id;
+          b3.dataset.locataireId = locId;
+          b3.textContent = '📧 Renvoyer';
+          b3.addEventListener('click', async () => {
+            try {
+              await envoyerQuittanceEnUnClic(pmt.id, locId, b3);
+              const list = await api('GET', '/api/paiements/' + encodeURIComponent(locId));
+              renderPaiementsTable(body, list, locId, loc);
+            } catch (e) { /* toast déjà affiché */ }
+          });
+          actionsTd.appendChild(b3);
+        }
+    // Bouton "Impaye" (toggle)
+    if (pmt.statut !== 'impaye') {
+      const b4 = document.createElement('button');
+      b4.type = 'button';
+      b4.textContent = '❌ Impayé';
+      b4.addEventListener('click', () => updatePaiement(body, locId, loc, { ...pmt, statut: 'impaye' }));
+      actionsTd.appendChild(b4);
+    }
+  });
+
+  body.querySelector('[data-action="add-pmt"]').addEventListener('click', () => {
+    promptAddPaiement(body, locId, loc, null);
+  });
+}
+
+async function updatePaiement(body, locId, loc, pmt) {
+  try {
+    const total = (typeof loc.loyerHC === 'number' ? loc.loyerHC : 0) + (typeof loc.charges === 'number' ? loc.charges : 0);
+    const payload = {
+      id: pmt.id,
+      locataireId: locId,
+      mois: pmt.mois,
+      annee: pmt.annee,
+      total: typeof pmt.total === 'number' ? pmt.total : total,
+      statut: pmt.statut,
+    };
+    if (pmt.datePaiement) payload.datePaiement = pmt.datePaiement;
+    if (pmt.dateEnvoiQuittance) payload.dateEnvoiQuittance = pmt.dateEnvoiQuittance;
+    if (pmt.pdfSha256) payload.pdfSha256 = pmt.pdfSha256;
+    await api('POST', '/api/paiements', payload);
+    showToast('Paiement mis à jour', false);
+    const list = await api('GET', '/api/paiements/' + encodeURIComponent(locId));
+    renderPaiementsTable(body, list, locId, loc);
+  } catch (e) {
+    showToast('Erreur : ' + e.message, true);
+  }
+}
+
+function promptAddPaiement(body, locId, loc, existing) {
+  // Mini-formulaire inline (mois + année + statut)
+  const MOIS = MOIS_INDEX;
+  const currentYear = new Date().getFullYear();
+  const moisOpts = MOIS.map(m => `<option ${existing && existing.mois === m ? 'selected' : ''}>${m}</option>`).join('');
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'background:#fff;padding:10px;border:1px solid #ccc;border-radius:4px;margin-top:10px';
+  wrap.innerHTML = `
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
+      <div><label>Mois</label><select id="new-pmt-mois">${moisOpts}</select></div>
+      <div><label>Année</label><input type="number" id="new-pmt-annee" min="2020" max="2100" value="${existing ? existing.annee : currentYear}"></div>
+      <div><label>Statut</label><select id="new-pmt-statut">
+        <option value="en_attente">⏳ En attente</option>
+        <option value="paye">✅ Payé</option>
+        <option value="impaye">❌ Impayé</option>
+        <option value="quittance_envoyee">📧 Quittance envoyée</option>
+      </select></div>
+      <div><button type="button" class="primary" id="new-pmt-ok" style="font-size:12px;padding:6px 12px">OK</button>
+      <button type="button" class="secondary" id="new-pmt-cancel" style="font-size:12px;padding:6px 12px">Annuler</button></div>
+    </div>
+  `;
+  body.appendChild(wrap);
+  wrap.querySelector('#new-pmt-cancel').addEventListener('click', () => wrap.remove());
+  wrap.querySelector('#new-pmt-ok').addEventListener('click', async () => {
+    const mois = wrap.querySelector('#new-pmt-mois').value;
+    const annee = parseInt(wrap.querySelector('#new-pmt-annee').value, 10) || currentYear;
+    const statut = wrap.querySelector('#new-pmt-statut').value;
+    try {
+      const total = (typeof loc.loyerHC === 'number' ? loc.loyerHC : 0) + (typeof loc.charges === 'number' ? loc.charges : 0);
+      await api('POST', '/api/paiements', { locataireId: locId, mois, annee, statut, total });
+      showToast('Paiement ajouté', false);
+      const list = await api('GET', '/api/paiements/' + encodeURIComponent(locId));
+      renderPaiementsTable(body, list, locId, loc);
+    } catch (e) {
+      showToast('Erreur : ' + e.message, true);
+    }
   });
 }
 
@@ -245,23 +635,51 @@ function populateLocataireSelect() {
   locataires.forEach((l, i) => {
     const opt = document.createElement('option');
     opt.value = i;
-    opt.textContent = l.nom + ' (' + l.email + ')';
+    const nomComplet = l.prenom ? (l.prenom + ' ' + l.nom).trim() : l.nom;
+    opt.textContent = nomComplet + ' (' + l.email + ')';
     sel.appendChild(opt);
   });
 }
 
 document.getElementById('form-locator').addEventListener('submit', async (e) => {
   e.preventDefault();
+  const prenom = document.getElementById('prenom').value.trim();
   const nom = document.getElementById('nom').value.trim();
   const email = document.getElementById('email').value.trim();
-  const adresse = document.getElementById('adresse').value.trim();
-  if (!nom || !email || !adresse) return;
+  const rue = document.getElementById('adresse-rue').value.trim();
+  const complement = document.getElementById('adresse-complement').value.trim();
+  const cp = document.getElementById('adresse-cp').value.trim();
+  const ville = document.getElementById('adresse-ville').value.trim();
+  const loyerHC = parseFloat(document.getElementById('loyer-hc-default').value) || 0;
+  const charges = parseFloat(document.getElementById('charges-default').value) || 0;
+  const dateEntree = document.getElementById('date-entree').value || '';
+  const bailRef = document.getElementById('bail-ref').value.trim();
+
+  // Rétro-compat : si pas d'adresse structurée (cas legacy), on garde une chaîne.
+  let adresse;
+  if (rue || cp || ville) {
+    adresse = { rue, complement, cp, ville };
+  } else {
+    adresse = '';
+  }
+
+  if (!nom || !email) return;
+
+  // Payload v2 (objet). Champs optionnels omis si vides pour rester propre.
+  const payload = { nom, email, adresse };
+  if (prenom) payload.prenom = prenom;
+  if (loyerHC) payload.loyerHC = loyerHC;
+  if (charges) payload.charges = charges;
+  if (dateEntree) payload.dateEntree = dateEntree;
+  if (bailRef) payload.bailRef = bailRef;
+  payload.creeLe = new Date().toISOString();
+
   try {
-    const r = await api('POST', '/api/locataires', { nom, email, adresse });
+    const r = await api('POST', '/api/locataires', payload);
     locataires = r.locataires;
     renderLocataires();
     e.target.reset();
-    showToast('Locataire ajouté : ' + nom, false);
+    showToast('Locataire ajouté : ' + (prenom ? prenom + ' ' + nom : nom), false);
   } catch (err) {
     showToast('Erreur : ' + err.message, true);
   }
@@ -349,7 +767,7 @@ function slugify(s) {
 
 let currentPdf = null, currentFilename = null, currentTo = null, currentSubject = null, currentBody = null;
 
-function generatePdf() {
+async function generatePdf() {
   const idx = parseInt(document.getElementById('locataire-select').value);
   const l = locataires[idx];
   if (!l) { showToast('Veuillez sélectionner un locataire', true); return false; }
@@ -362,6 +780,13 @@ function generatePdf() {
   const dateEmission = document.getElementById('date-emission').value.trim()
     || (new Date().getDate() + ' ' + mois + ' ' + annee);
 
+  // Nom complet (prenom + nom) si prenom dispo, sinon rétro-compat nom seul
+  const nomComplet = l.prenom ? (l.prenom + ' ' + l.nom).trim() : l.nom;
+  // Adresse : string legacy ou objet structuré aplati en string pour le PDF
+  const adresseStr = (typeof l.adresse === 'object' && l.adresse)
+    ? [l.adresse.rue, l.adresse.complement, [l.adresse.cp, l.adresse.ville].filter(Boolean).join(' ')].filter(Boolean).join(', ')
+    : (l.adresse || '');
+
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   const PAGE_W = 210, MARGIN_L = 20;
@@ -373,9 +798,9 @@ function generatePdf() {
   const w = doc.getTextWidth('Adresse de la location :');
   doc.setLineWidth(0.4); doc.line(MARGIN_L, y + 1.5, MARGIN_L + w, y + 1.5); y += 10;
   doc.setFont('helvetica', 'normal'); doc.setFontSize(11);
-  doc.text(l.adresse, MARGIN_L, y); y += 12;
+  doc.text(adresseStr, MARGIN_L, y); y += 12;
   const phrase = `Je soussigné Roland Ghaoui propriétaire du logement désigné ci-dessus, `
-    + `déclare avoir reçu de ${l.nom} la somme de ${numberToFrenchLetters(total)}, `
+    + `déclare avoir reçu de ${nomComplet} la somme de ${numberToFrenchLetters(total)}, `
     + `au titre du paiement du loyer et des charges pour la période de location de tout le mois de ${mois} ${annee}.`;
   const phraseLines = doc.splitTextToSize(phrase, PAGE_W - 40);
   doc.text(phraseLines, MARGIN_L, y); y += phraseLines.length * 6 + 6;
@@ -403,20 +828,72 @@ function generatePdf() {
     + "locataire (article 7-1 de la loi n° 89-462 du 6 juillet 1989).";
   doc.text(doc.splitTextToSize(mention, PAGE_W - 40), MARGIN_L, 280);
 
+  // Bloc signature numérique SHA-256 (loi ELAN) — calculé avant injection du bloc
+  const interim = new Uint8Array(doc.output('arraybuffer'));
+  const sha256Hex = await sha256HexOfBytes(interim);
+  drawSignatureBlock(doc, sha256Hex, 'Roland Ghaoui');
+
   currentPdf = new Uint8Array(doc.output('arraybuffer'));
   const mIdx = MOIS_INDEX.indexOf(mois);
   currentFilename = `quittance-${slugify(l.nom)}-${annee}-${String(mIdx + 1).padStart(2, '0')}.pdf`;
   currentTo = l.email;
   currentSubject = `Quittance de loyer - ${mois} ${annee}`;
-  currentBody = `<p>Bonjour ${l.nom},</p><p>Veuillez trouver ci-joint votre quittance de loyer pour ${mois} ${annee}.</p><p>Cordialement,<br>Roland Ghaoui</p>`;
+  currentBody = `<p>Bonjour ${nomComplet},</p>`
+    + `<p>Veuillez trouver ci-joint votre quittance de loyer pour ${mois} ${annee}.</p>`
+    + `<p>Cordialement,<br>Roland Ghaoui</p>`
+    + `<hr><p style="font-size:11px;color:#666">Empreinte SHA-256 du PDF : <code>${sha256Hex}</code></p>`
+    + `<p style="font-size:11px;color:#666">Signature numérique conforme loi ELAN.</p>`;
 
   document.getElementById('apercu-card').style.display = 'block';
-  document.getElementById('apercu').textContent = `QUITTANCE DE LOYER\n\nAdresse : ${l.adresse}\n\n${phrase}\n\nDétail :\n  Loyer HC : ${loyerHC} €\n  Charges : ${charges} €\n  Total CC : ${total} €\n\nFait à ${lieu}, le ${dateEmission}.\n\n[PDF généré : ${currentFilename}, ${currentPdf.length} octets]`;
+  document.getElementById('apercu').textContent = `QUITTANCE DE LOYER\n\nAdresse : ${adresseStr}\n\n${phrase}\n\nDétail :\n  Loyer HC : ${loyerHC} €\n  Charges : ${charges} €\n  Total CC : ${total} €\n\nFait à ${lieu}, le ${dateEmission}.\n\n[PDF généré : ${currentFilename}, ${currentPdf.length} octets]\n[Empreinte SHA-256 : ${sha256Hex.slice(0, 16)}...]`;
   return true;
 }
 
-document.getElementById('btn-generer').addEventListener('click', () => {
-  if (generatePdf()) showToast('PDF généré', false);
+// SHA-256 synchrone (implémentation pure JS, sans dépendance externe)
+function sha256HexOfBytes(bytes) {
+  return new Promise((resolve, reject) => {
+    if (window.crypto && window.crypto.subtle) {
+      const buf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+      window.crypto.subtle.digest('SHA-256', buf).then(d => {
+        const arr = new Uint8Array(d);
+        let hex = '';
+        for (let i = 0; i < arr.length; i++) hex += arr[i].toString(16).padStart(2, '0');
+        resolve(hex);
+      }).catch(reject);
+    } else {
+      reject(new Error('Web Crypto indisponible'));
+    }
+  });
+}
+
+// Bloc signature numérique conforme loi ELAN (frontend, miroir de pdf-engine.js)
+function drawSignatureBlock(doc, sha256Hex, proprietaire) {
+  const x = 120, y = 240, w = 70, h = 35;
+  doc.setDrawColor(0); doc.setLineWidth(0.4); doc.rect(x, y, w, h);
+  doc.setLineWidth(0.5); doc.line(x + 10, y + 10, x + 10 + 50, y + 10);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Le bailleur', x + 4, y + 16);
+  doc.setFont('helvetica', 'normal');
+  doc.text(proprietaire, x + 4, y + 21);
+  doc.setFontSize(7.5);
+  doc.text('Signature numerique conforme loi ELAN', x + 4, y + 26);
+  const now = new Date();
+  const dd = String(now.getDate()).padStart(2, '0');
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const yyyy = now.getFullYear();
+  const hh = String(now.getHours()).padStart(2, '0');
+  const mn = String(now.getMinutes()).padStart(2, '0');
+  doc.text(`Emis le ${dd}/${mm}/${yyyy} a ${hh}:${mn}`, x + 4, y + 30);
+  doc.text(`Empreinte SHA-256: ${(sha256Hex || '').slice(0, 16)}`, x + 4, y + 33.5);
+}
+
+document.getElementById('btn-generer').addEventListener('click', async () => {
+  try {
+    if (await generatePdf()) showToast('PDF généré', false);
+  } catch (e) {
+    showToast('Erreur génération PDF : ' + e.message, true);
+  }
 });
 
 document.getElementById('btn-telecharger').addEventListener('click', () => {
@@ -466,11 +943,92 @@ function showToast(msg, isErr) {
   toastTimer = setTimeout(() => t.style.display = 'none', 3000);
 }
 
+// ============ TEMPLATE (Brief B) ============
+let templateData = null;
+
+async function loadTemplate() {
+  try {
+    templateData = await api('GET', '/api/template');
+  } catch (e) {
+    showToast('Erreur chargement template : ' + e.message, true);
+    templateData = {
+      proprietaire: { nom: '', adresse: '', telephone: '', email: '' },
+      mentionLegale: '', lieuDefaut: 'Bahreïn',
+      signatureLabel: 'Le bailleur', signatureLoiElan: true, logoUrl: null,
+    };
+  }
+  fillTemplateForm();
+}
+
+function fillTemplateForm() {
+  const t = templateData || {};
+  const p = t.proprietaire || {};
+  document.getElementById('tpl-prop-nom').value = p.nom || '';
+  document.getElementById('tpl-prop-email').value = p.email || '';
+  document.getElementById('tpl-prop-adresse').value = p.adresse || '';
+  document.getElementById('tpl-prop-tel').value = p.telephone || '';
+  document.getElementById('tpl-mention').value = t.mentionLegale || '';
+  document.getElementById('tpl-lieu').value = t.lieuDefaut || 'Bahreïn';
+  document.getElementById('tpl-logo').value = t.logoUrl || '';
+  document.getElementById('tpl-elan').checked = t.signatureLoiElan !== false;
+  document.getElementById('tpl-sig-label').value = t.signatureLabel || 'Le bailleur';
+}
+
+function readTemplateForm() {
+  return {
+    proprietaire: {
+      nom: document.getElementById('tpl-prop-nom').value.trim(),
+      email: document.getElementById('tpl-prop-email').value.trim(),
+      adresse: document.getElementById('tpl-prop-adresse').value.trim(),
+      telephone: document.getElementById('tpl-prop-tel').value.trim(),
+    },
+    mentionLegale: document.getElementById('tpl-mention').value,
+    lieuDefaut: document.getElementById('tpl-lieu').value.trim() || 'Bahreïn',
+    signatureLabel: document.getElementById('tpl-sig-label').value.trim() || 'Le bailleur',
+    signatureLoiElan: document.getElementById('tpl-elan').checked,
+    logoUrl: document.getElementById('tpl-logo').value.trim() || null,
+  };
+}
+
+document.getElementById('btn-tpl-save').addEventListener('click', async () => {
+  const payload = readTemplateForm();
+  try {
+    const r = await api('POST', '/api/template', payload);
+    templateData = r.template || payload;
+    showToast('Template enregistré', false);
+    // Met aussi à jour le lieu par défaut du formulaire quittance
+    const lieuInput = document.getElementById('lieu');
+    if (lieuInput && templateData.lieuDefaut) lieuInput.value = templateData.lieuDefaut;
+  } catch (e) {
+    showToast('Erreur : ' + e.message, true);
+  }
+});
+
+document.getElementById('btn-tpl-reset').addEventListener('click', async () => {
+  if (!confirm('Réinitialiser tous les champs aux valeurs par défaut ?')) return;
+  // On force la requête POST avec un objet vide → le serveur applique les défauts
+  try {
+    const r = await api('POST', '/api/template', {});
+    templateData = r.template;
+    fillTemplateForm();
+    showToast('Template réinitialisé', false);
+  } catch (e) {
+    showToast('Erreur : ' + e.message, true);
+  }
+});
+
 // ============ INIT ============
 updateTotal();
-checkAuth().catch(e => {
+checkAuth().then(() => {
+  loadTemplate().catch(() => {});
+}).catch(e => {
   document.getElementById('login-error').textContent = 'Erreur : ' + e.message;
 });
+
+// Service worker (PWA installable)
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(() => {/* offline best-effort */});
+}
 </script>
 </body>
 </html>
