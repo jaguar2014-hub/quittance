@@ -72,7 +72,7 @@
 </head>
 <body>
   <h1>Quittances de Loyer</h1>
-  <p style="color:#666;margin-top:-10px">Application de gestion des quittances pour Roland Ghaoui</p>
+  <p style="color:#666;margin-top:-10px">Application web de gestion des quittances de loyer</p>
 
   <!-- ============ BARRE UTILISATEUR ============ -->
   <div id="user-bar" class="user-bar hidden">
@@ -83,12 +83,27 @@
   <!-- ============ ÉCRAN LOGIN ============ -->
   <section id="login-screen" class="card">
     <h2>Connexion requise</h2>
-    <p>Cette application est protégée. Connectez-vous avec votre compte Google autorisé.</p>
-    <p><a href="/auth/google/start"><button class="google">
-      <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#4285F4" d="M45.12 24.5c0-1.56-.14-3.06-.4-4.5H24v8.51h11.84c-.51 2.75-2.06 5.08-4.39 6.64v5.52h7.11c4.16-3.83 6.56-9.47 6.56-16.17z"/><path fill="#34A853" d="M24 46c5.94 0 10.92-1.97 14.56-5.33l-7.11-5.52c-1.97 1.32-4.49 2.1-7.45 2.1-5.73 0-10.58-3.87-12.31-9.07H4.34v5.7C7.96 41.07 15.4 46 24 46z"/><path fill="#FBBC05" d="M11.69 28.18c-.44-1.32-.69-2.73-.69-4.18s.25-2.86.69-4.18v-5.7H4.34C2.85 17.09 2 20.45 2 24s.85 6.91 2.34 9.88l7.35-5.7z"/><path fill="#EA4335" d="M24 10.75c3.23 0 6.13 1.11 8.41 3.29l6.31-6.31C34.91 4.18 29.93 2 24 2 15.4 2 7.96 6.93 4.34 14.12l7.35 5.7c1.73-5.2 6.58-9.07 12.31-9.07z"/></svg>
-      Se connecter avec Google
-    </button></a></p>
-    <p id="login-error" style="color:#dc3545"></p>
+    <p id="login-intro">Cette application est protégée.</p>
+
+    <!-- Login email/password (Brief E) -->
+    <form id="form-login" style="margin: 12px 0;">
+      <label for="login-email">Email</label>
+      <input type="email" id="login-email" name="login-email" placeholder="votre@email.com" autocomplete="username" required>
+      <label for="login-password">Mot de passe</label>
+      <input type="password" id="login-password" name="login-password" autocomplete="current-password" required>
+      <p style="margin-top:12px"><button type="submit" class="primary">Se connecter</button></p>
+    </form>
+
+    <!-- Bouton Google (Brief E: caché si OAuth pas configuré) -->
+    <div id="login-google-block" style="display:none; margin-top: 16px;">
+      <p style="color:#888; font-size: 13px;">ou avec Google :</p>
+      <p><a href="/auth/google/start"><button type="button" class="google">
+        <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#4285F4" d="M45.12 24.5c0-1.56-.14-3.06-.4-4.5H24v8.51h11.84c-.51 2.75-2.06 5.08-4.39 6.64v5.52h7.11c4.16-3.83 6.56-9.47 6.56-16.17z"/><path fill="#34A853" d="M24 46c5.94 0 10.92-1.97 14.56-5.33l-7.11-5.52c-1.97 1.32-4.49 2.1-7.45 2.1-5.73 0-10.58-3.87-12.31-9.07H4.34v5.7C7.96 41.07 15.4 46 24 46z"/><path fill="#FBBC05" d="M11.69 28.18c-.44-1.32-.69-2.73-.69-4.18s.25-2.86.69-4.18v-5.7H4.34C2.85 17.09 2 20.45 2 24s.85 6.91 2.34 9.88l7.35-5.7z"/><path fill="#EA4335" d="M24 10.75c3.23 0 6.13 1.11 8.41 3.29l6.31-6.31C34.91 4.18 29.93 2 24 2 15.4 2 7.96 6.93 4.34 14.12l7.35 5.7c1.73-5.2 6.58-9.07 12.31-9.07z"/></svg>
+        Se connecter avec Google
+      </button></a></p>
+    </div>
+
+    <p id="login-error" style="color:#dc3545; margin-top: 12px;"></p>
   </section>
 
   <!-- ============ APP PRINCIPALE ============ -->
@@ -98,6 +113,7 @@
       <button class="tab-btn" data-tab="quittance">Nouvelle quittance</button>
       <button class="tab-btn" data-tab="historique">Historique</button>
       <button class="tab-btn" data-tab="template">Template</button>
+      <button class="tab-btn" data-tab="profil">Mon profil</button>
     </nav>
 
     <section id="panel-locataires" class="tab-panel active">
@@ -185,11 +201,11 @@
         <div class="template-row">
           <div>
             <label for="tpl-prop-nom">Nom complet</label>
-            <input type="text" id="tpl-prop-nom" placeholder="Roland Ghaoui">
+            <input type="text" id="tpl-prop-nom" placeholder="Votre nom complet">
           </div>
           <div>
             <label for="tpl-prop-email">Email</label>
-            <input type="email" id="tpl-prop-email" placeholder="roland@example.com">
+            <input type="email" id="tpl-prop-email" placeholder="bailleur@example.com">
           </div>
         </div>
         <label for="tpl-prop-adresse">Adresse bailleur</label>
@@ -221,6 +237,35 @@
         </p>
       </div>
     </section>
+
+    <!-- ============ Brief E — Profil bailleur ============ -->
+    <section id="panel-profil" class="tab-panel">
+      <div class="card">
+        <h2>Mon profil bailleur</h2>
+        <p style="color:#666;font-size:13px">Ces informations sont utilisées dans le PDF (nom, lieu) et comme expéditeur du mail (email). Elles sont stockées localement, jamais envoyées à un service tiers.</p>
+
+        <label for="profil-nom">Nom complet du bailleur</label>
+        <input type="text" id="profil-nom" placeholder="ex : Jean Dupont" autocomplete="name">
+
+        <label for="profil-email">Email (utilisé comme expéditeur des mails)</label>
+        <input type="email" id="profil-email" placeholder="ex : bailleur@example.com" autocomplete="email">
+
+        <label for="profil-adresse">Adresse du bailleur</label>
+        <input type="text" id="profil-adresse" placeholder="ex : 15 rue de la Paix, 75002 Paris" autocomplete="street-address">
+
+        <label for="profil-telephone">Téléphone (optionnel)</label>
+        <input type="tel" id="profil-telephone" placeholder="ex : +33 6 12 34 56 78" autocomplete="tel">
+
+        <label for="profil-lieu">Lieu par défaut (signature)</label>
+        <input type="text" id="profil-lieu" placeholder="ex : Paris">
+
+        <p style="margin-top:20px">
+          <button id="btn-profil-save" class="primary">Enregistrer</button>
+          <button id="btn-profil-reset" class="secondary">Réinitialiser</button>
+        </p>
+        <p id="profil-status" style="margin-top:12px;color:#28a745;display:none">✓ Profil enregistré</p>
+      </div>
+    </section>
   </div>
 
   <div id="confirm-modal" class="modal-backdrop">
@@ -240,6 +285,7 @@
 // ============ STATE ============
 let locataires = [];
 let historique = [];
+let currentProfil = null;   // Brief E : profil bailleur chargé au démarrage
 
 const MOIS_INDEX = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
 
@@ -257,29 +303,51 @@ async function api(method, path, body) {
 // ============ AUTH ============
 async function checkAuth() {
   const me = await api('GET', '/api/me');
-  if (me.authenticated) {
-    document.getElementById('login-screen').classList.add('hidden');
-    document.getElementById('app-screen').classList.remove('hidden');
-    document.getElementById('user-bar').classList.remove('hidden');
-    document.getElementById('user-email').textContent = me.email;
-    loadLocataires();
-    loadHistorique();
-  } else if (!me.oauthEnabled) {
-    document.getElementById('login-screen').classList.add('hidden');
-    document.getElementById('app-screen').classList.remove('hidden');
-    document.getElementById('user-bar').classList.add('hidden');
-    loadLocataires();
-    loadHistorique();
-  } else {
-    // Show login screen
+  // Afficher le bouton Google seulement si OAuth activé (Brief E)
+  if (me.oauthEnabled) {
+    document.getElementById('login-google-block').style.display = 'block';
   }
+  if (me.authenticated) {
+    showApp(me.email);
+  } else if (!me.oauthEnabled && !me.loginEnabled && !me.authRequired) {
+    // Dev mode: pas d'auth du tout
+    showApp('dev-mode');
+  } else {
+    // Affiche login screen (déjà visible par défaut)
+  }
+}
+function showApp(email) {
+  document.getElementById('login-screen').classList.add('hidden');
+  document.getElementById('app-screen').classList.remove('hidden');
+  document.getElementById('user-bar').classList.remove('hidden');
+  document.getElementById('user-email').textContent = email;
+  loadLocataires();
+  loadHistorique();
+  loadProfil();   // Brief E: charge le profil bailleur au démarrage
 }
 document.getElementById('btn-logout').addEventListener('click', async () => {
   await api('POST', '/auth/logout');
   location.reload();
 });
 
-// Erreur d'accès si ?auth=denied dans l'URL
+// Brief E : handler login email/password
+document.getElementById('form-login').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const email = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  const errEl = document.getElementById('login-error');
+  errEl.textContent = '';
+  try {
+    const r = await api('POST', '/auth/login', { email, password });
+    if (r.ok) {
+      showApp(r.email);
+    }
+  } catch (err) {
+    errEl.textContent = err.message || 'Erreur de connexion';
+  }
+});
+
+// Erreur d'accès si ?auth=denied dans l'URL (Briefs précédents)
 if (location.search.includes('auth=denied')) {
   document.getElementById('login-error').textContent = 'Accès refusé : votre email n\'est pas dans la liste blanche.';
 }
@@ -294,7 +362,49 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     if (btn.dataset.tab === 'quittance') populateLocataireSelect();
     if (btn.dataset.tab === 'historique') renderHistorique();
     if (btn.dataset.tab === 'template') { fillTemplateForm(); }
+    if (btn.dataset.tab === 'profil') { loadProfil(); }
   });
+});
+
+// ============ PROFIL BAILLEUR (Brief E) ============
+async function loadProfil() {
+  try {
+    currentProfil = await api('GET', '/api/profil');
+    document.getElementById('profil-nom').value = currentProfil.nom || '';
+    document.getElementById('profil-email').value = currentProfil.email || '';
+    document.getElementById('profil-adresse').value = currentProfil.adresse || '';
+    document.getElementById('profil-telephone').value = currentProfil.telephone || '';
+    document.getElementById('profil-lieu').value = currentProfil.lieuDefaut || '';
+  } catch (e) {
+    // Silencieux si pas chargé (encore sur login screen)
+  }
+}
+document.getElementById('btn-profil-save').addEventListener('click', async () => {
+  const payload = {
+    nom: document.getElementById('profil-nom').value.trim(),
+    email: document.getElementById('profil-email').value.trim(),
+    adresse: document.getElementById('profil-adresse').value.trim(),
+    telephone: document.getElementById('profil-telephone').value.trim(),
+    lieuDefaut: document.getElementById('profil-lieu').value.trim(),
+  };
+  try {
+    await api('POST', '/api/profil', payload);
+    const statusEl = document.getElementById('profil-status');
+    statusEl.textContent = '✓ Profil enregistré';
+    statusEl.style.display = 'block';
+    setTimeout(() => { statusEl.style.display = 'none'; }, 3000);
+  } catch (e) {
+    showToast('Erreur : ' + e.message, true);
+  }
+});
+document.getElementById('btn-profil-reset').addEventListener('click', async () => {
+  if (!confirm('Effacer votre profil ? Les champs seront vidés.')) return;
+  try {
+    await api('POST', '/api/profil', { nom:'', email:'', adresse:'', telephone:'', lieuDefaut:'' });
+    loadProfil();
+  } catch (e) {
+    showToast('Erreur : ' + e.message, true);
+  }
 });
 
 // ============ LOCATAIRES ============
@@ -799,7 +909,8 @@ async function generatePdf() {
   doc.setLineWidth(0.4); doc.line(MARGIN_L, y + 1.5, MARGIN_L + w, y + 1.5); y += 10;
   doc.setFont('helvetica', 'normal'); doc.setFontSize(11);
   doc.text(adresseStr, MARGIN_L, y); y += 12;
-  const phrase = `Je soussigné Roland Ghaoui propriétaire du logement désigné ci-dessus, `
+  const bailleurNom = (currentProfil && currentProfil.nom) || 'le bailleur';
+  const phrase = `Je soussigné ${bailleurNom} propriétaire du logement désigné ci-dessus, `
     + `déclare avoir reçu de ${nomComplet} la somme de ${numberToFrenchLetters(total)}, `
     + `au titre du paiement du loyer et des charges pour la période de location de tout le mois de ${mois} ${annee}.`;
   const phraseLines = doc.splitTextToSize(phrase, PAGE_W - 40);
@@ -831,7 +942,7 @@ async function generatePdf() {
   // Bloc signature numérique SHA-256 (loi ELAN) — calculé avant injection du bloc
   const interim = new Uint8Array(doc.output('arraybuffer'));
   const sha256Hex = await sha256HexOfBytes(interim);
-  drawSignatureBlock(doc, sha256Hex, 'Roland Ghaoui');
+  drawSignatureBlock(doc, sha256Hex, bailleurNom);
 
   currentPdf = new Uint8Array(doc.output('arraybuffer'));
   const mIdx = MOIS_INDEX.indexOf(mois);
@@ -840,7 +951,7 @@ async function generatePdf() {
   currentSubject = `Quittance de loyer - ${mois} ${annee}`;
   currentBody = `<p>Bonjour ${nomComplet},</p>`
     + `<p>Veuillez trouver ci-joint votre quittance de loyer pour ${mois} ${annee}.</p>`
-    + `<p>Cordialement,<br>Roland Ghaoui</p>`
+    + `<p>Cordialement,<br>${bailleurNom}</p>`
     + `<hr><p style="font-size:11px;color:#666">Empreinte SHA-256 du PDF : <code>${sha256Hex}</code></p>`
     + `<p style="font-size:11px;color:#666">Signature numérique conforme loi ELAN.</p>`;
 

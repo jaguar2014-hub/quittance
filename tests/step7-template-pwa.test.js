@@ -89,10 +89,10 @@ describe('Étape 7 — Template + PWA + Paiements (Brief B)', () => {
       expect(r.json).toBeTruthy();
       // Le serveur renvoie toujours les défauts si le fichier n'existe pas
       expect(r.json.proprietaire).toBeDefined();
-      expect(r.json.proprietaire.nom).toBe('Roland Ghaoui');
+      expect(r.json.proprietaire.nom).toBe('');
       expect(typeof r.json.mentionLegale).toBe('string');
       expect(r.json.mentionLegale).toMatch(/loi n° 89-462/);
-      expect(r.json.lieuDefaut).toBe('Bahreïn');
+      expect(r.json.lieuDefaut).toBe('');
       expect(r.json.signatureLabel).toBe('Le bailleur');
       expect(r.json.signatureLoiElan).toBe(true);
       expect(r.json.logoUrl).toBeNull();

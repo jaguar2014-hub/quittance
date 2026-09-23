@@ -1,7 +1,7 @@
 {
   "name": "quittances-app",
   "version": "2.0.0",
-  "description": "Application de gestion des quittances de loyer (cloud, OAuth Google, Render)",
+  "description": "Application web de gestion des quittances de loyer (Node.js, PWA installable, signature SHA-256)",
   "main": "server/send-mail.js",
   "scripts": {
     "start": "node server/send-mail.js",

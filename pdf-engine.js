@@ -1,7 +1,7 @@
 /**
  * Moteur PDF — génération de quittances de loyer.
  *
- * Reproduit la mise en page du template Roland :
+ * Reproduit la mise en page du template standard (propriétaire éditable) :
  *   - titre H1 centré
  *   - adresse soulignée
  *   - phrase de quittance (propriétaire + locataire + somme en lettres)
@@ -112,7 +112,7 @@ const MOIS_FR = ['', 'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
 
 function buildPdf(data) {
   const {
-    proprietaire = 'Roland Ghaoui',
+    proprietaire = '',
     locataire,
     adresse,
     mois,
@@ -120,7 +120,7 @@ function buildPdf(data) {
     loyerHC,
     charges,
     total,
-    lieu = 'Bahreïn',
+    lieu = '',
     dateEmission,
   } = data;
 
@@ -235,7 +235,7 @@ function buildPdf(data) {
  */
 function addSignatureBlock(doc, props) {
   const {
-    proprietaire = 'Roland Ghaoui',
+    proprietaire = '',
     sha256Hex = '',
     dateEmission = '',
     lieu = '',

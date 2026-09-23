@@ -5,19 +5,22 @@
  * - API : /api/health, /api/locataires (GET/POST), /api/quittances (POST), /api/send
  * - OAuth Google : /auth/google/start, /auth/google/callback
  * - Whitelist emails (env GOOGLE_ALLOWED_EMAILS)
- * - Persistance disque : DATA_DIR/locataires.json + DATA_DIR/historique.json
- *
- * Variables d'environnement requises :
- *   - GMAIL_APP_PASSWORD : mot de passe d'application Gmail 16 chars
- *   - PUBLIC_BASE_URL : URL publique (ex: https://quittances-app.onrender.com)
- *   - GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET : depuis Google Cloud Console
- *   - GOOGLE_ALLOWED_EMAILS : emails autorisés, virgule-séparés
- *
- * Optionnel :
- *   - DATA_DIR : répertoire de stockage (défaut /data sur Render, . sinon)
- *   - PORT : port d'écoute (défaut 10000 sur Render, 8766 sinon)
- *   - SMTP_USER : défaut Jaguar2014@gmail.com
- */
+ * - Persistance disque : DATA_DIR/locataires.json + DATA_DIR/historique.json + DATA_DIR/profil.json
+  *
+  * Variables d'environnement requises :
+  *   - GMAIL_APP_PASSWORD : mot de passe d'application Gmail 16 chars
+  *   - PUBLIC_BASE_URL : URL publique (ex: https://quittances-app.onrender.com)
+  *   - GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET : depuis Google Cloud Console
+  *   - GOOGLE_ALLOWED_EMAILS : emails autorisés, virgule-séparés
+  *
+  * Optionnel :
+  *   - DATA_DIR : répertoire de stockage (défaut /data sur Render, . sinon)
+  *   - PORT : port d'écoute (défaut 10000 sur Render, 8766 sinon)
+  *   - SMTP_USER : défaut '' (lu depuis le profil bailleur)
+  *   - APP_LOGIN_EMAIL + APP_LOGIN_PASSWORD (+ optionnel APP_LOGIN_PASSWORD_HASH) :
+  *       active un login email/password simple (alternative à OAuth Google).
+  *       Si APP_LOGIN_EMAIL est non vide → auth obligatoire sur les routes /api/*
+  */
 
 const express = require('express');
 const nodemailer = require('nodemailer');
@@ -29,7 +32,7 @@ const path = require('path');
 const PORT = parseInt(process.env.PORT || '8766', 10);
 const HOST = process.env.HOST || '0.0.0.0';
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || `http://127.0.0.1:${PORT}`;
-const SMTP_USER = process.env.SMTP_USER || 'Jaguar2014@gmail.com';
+const SMTP_USER = process.env.SMTP_USER || '';
 const SMTP_HOST = process.env.SMTP_HOST || 'smtp.gmail.com';
 const SMTP_PORT = parseInt(process.env.SMTP_PORT || '465', 10);
 const GMAIL_PASSWORD = process.env.GMAIL_APP_PASSWORD || '';
@@ -37,6 +40,50 @@ const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
 const ALLOWED_EMAILS = (process.env.GOOGLE_ALLOWED_EMAILS || '').split(',').map(s => s.trim()).filter(Boolean);
 const OAUTH_ENABLED = !!(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET && ALLOWED_EMAILS.length);
+
+// ============ Login simple (Brief E) ============
+const APP_LOGIN_EMAIL = (process.env.APP_LOGIN_EMAIL || '').trim().toLowerCase();
+const APP_LOGIN_PASSWORD = process.env.APP_LOGIN_PASSWORD || '';
+const APP_LOGIN_PASSWORD_HASH = (process.env.APP_LOGIN_PASSWORD_HASH || '').trim().toLowerCase();
+const PASSWORD_AUTH_ENABLED = !!APP_LOGIN_EMAIL && (!!APP_LOGIN_PASSWORD || !!APP_LOGIN_PASSWORD_HASH);
+const AUTH_REQUIRED = OAUTH_ENABLED || PASSWORD_AUTH_ENABLED;
+
+function sha256Hex(s) {
+   return crypto.createHash('sha256').update(String(s)).digest('hex');
+ }
+function passwordMatches(input) {
+   const candidate = String(input || '');
+   if (APP_LOGIN_PASSWORD_HASH) {
+     return sha256Hex(candidate) === APP_LOGIN_PASSWORD_HASH;
+   }
+   return candidate === APP_LOGIN_PASSWORD;
+ }
+
+// Rate limit login (RAM): 5 tentatives / 15 min / IP
+const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
+const RATE_LIMIT_MAX = 5;
+const loginAttempts = new Map();
+function clientIp(req) {
+   return (req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown').toString().split(',')[0].trim();
+ }
+function pruneAttempts(ip, now) {
+   const arr = loginAttempts.get(ip);
+   if (!arr) return;
+   const fresh = arr.filter(t => now - t < RATE_LIMIT_WINDOW_MS);
+   if (fresh.length === 0) loginAttempts.delete(ip); else loginAttempts.set(ip, fresh);
+ }
+function recordAttempt(ip, now) {
+   const arr = loginAttempts.get(ip) || [];
+   arr.push(now);
+   loginAttempts.set(ip, arr);
+ }
+function isRateLimited(ip) {
+   const now = Date.now();
+   pruneAttempts(ip, now);
+   const arr = loginAttempts.get(ip) || [];
+   return arr.length >= RATE_LIMIT_MAX;
+ }
+
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 
 // ============ Persistance disque ============
@@ -59,17 +106,55 @@ function writeJson(filename, data) {
   fs.writeFileSync(fp, JSON.stringify(data, null, 2));
 }
 
+// ============ Profil bailleur (Brief E) ============
+
+const DEFAULT_PROFIL = {
+  nom: '',
+  email: '',
+  adresse: '',
+  telephone: '',
+  lieuDefaut: '',
+};
+
+function sanitizeProfil(input) {
+  const p = input && typeof input === 'object' ? input : {};
+  const email = typeof p.email === 'string' ? p.email.trim() : '';
+  // Validation email (présence @ et .) — on est permissif, juste pour éviter les typos
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw Object.assign(new Error('Email invalide : ' + email), { status: 400 });
+  }
+  return {
+    nom: typeof p.nom === 'string' ? p.nom.trim() : '',
+    email,
+    adresse: typeof p.adresse === 'string' ? p.adresse.trim() : '',
+    telephone: typeof p.telephone === 'string' ? p.telephone.trim() : '',
+    lieuDefaut: typeof p.lieuDefaut === 'string' ? p.lieuDefaut.trim() : '',
+  };
+}
+
+function readProfil() {
+  const p = readJson('profil.json', null);
+  return p ? sanitizeProfil(p) : { ...DEFAULT_PROFIL };
+}
+
+function resolveFrom() {
+  // Le mail part au nom du bailleur : on lit le profil, sinon SMTP_USER
+  const p = readProfil();
+  return p.email || SMTP_USER || '';
+}
+
 // ============ SMTP ============
 
 function buildTransport() {
   if (!GMAIL_PASSWORD) throw new Error('GMAIL_APP_PASSWORD non défini');
+  const fromUser = resolveFrom() || SMTP_USER;
   return nodemailer.createTransport({
     host: SMTP_HOST, port: SMTP_PORT, secure: true,
-    auth: { user: SMTP_USER, pass: GMAIL_PASSWORD },
+    auth: { user: fromUser, pass: GMAIL_PASSWORD },
   });
 }
 
-async function sendMail({ to, subject, body, pdfBase64, filename }) {
+async function sendMail({ to, subject, body, pdfBase64, filename, from }) {
   if (!to || !subject || !body || !pdfBase64 || !filename) {
     return { ok: false, error: 'Champs manquants : to, subject, body, pdfBase64, filename' };
   }
@@ -78,8 +163,10 @@ async function sendMail({ to, subject, body, pdfBase64, filename }) {
     // Empreinte SHA-256 du PDF (signature numérique, loi ELAN)
     const pdfBuf = Buffer.from(pdfBase64, 'base64');
     const sha256Hex = crypto.createHash('sha256').update(pdfBuf).digest('hex');
+    // from : argument explicite > profil.email > SMTP_USER > placeholder
+    const mailFrom = from || resolveFrom() || SMTP_USER || 'quittances@localhost';
     const info = await transport.sendMail({
-      from: SMTP_USER,
+      from: mailFrom,
       to, subject, html: body,
       attachments: [{
         filename,
@@ -89,7 +176,7 @@ async function sendMail({ to, subject, body, pdfBase64, filename }) {
         headers: { 'X-PDF-SHA256': sha256Hex },
       }],
     });
-    return { ok: true, messageId: info.messageId, response: info.response, sha256: sha256Hex };
+    return { ok: true, messageId: info.messageId, response: info.response, sha256: sha256Hex, from: mailFrom };
   } catch (e) {
     return { ok: false, error: e.message };
   }
@@ -160,14 +247,25 @@ function buildApp() {
   app.use(express.static(ROOT, { extensions: ['html'] }));
 
   // Health
-  app.get('/api/health', (req, res) => res.json({
-    ok: true,
-    oauth: OAUTH_ENABLED,
-    dataDir: DATA_DIR,
-    publicBaseUrl: PUBLIC_BASE_URL,
-  }));
+    app.get('/api/health', (req, res) => res.json({
+      ok: true,
+      oauth: OAUTH_ENABLED,
+      loginConfigured: PASSWORD_AUTH_ENABLED,
+      authRequired: AUTH_REQUIRED,
+      dataDir: DATA_DIR,
+      publicBaseUrl: PUBLIC_BASE_URL,
+    }));
 
   // ============ AUTH ============
+
+  // Émet un cookie qsession pour un email donné (utilisé par OAuth + login simple)
+  function issueSessionCookie(res, email) {
+      const sid = makeSessionId();
+      sessions.set(sid, { userEmail: email, createdAt: Date.now() });
+      res.setHeader('Set-Cookie',
+        `qsession=${sid}; HttpOnly; Path=/; SameSite=Lax; Max-Age=86400${PUBLIC_BASE_URL.startsWith('https') ? '; Secure' : ''}`);
+      return sid;
+    }
 
   app.get('/auth/google/start', (req, res) => {
     if (!OAUTH_ENABLED) return res.status(503).send('OAuth non configuré. Voir GOOGLE_OAUTH_SETUP.md');
@@ -201,14 +299,36 @@ function buildApp() {
       if (!ALLOWED_EMAILS.includes(user.email)) {
         return res.status(403).send(`Accès refusé : ${user.email} n'est pas dans la liste blanche`);
       }
-      const sid = makeSessionId();
-      sessions.set(sid, { userEmail: user.email, createdAt: Date.now() });
-      // Cookie httpOnly
-      res.setHeader('Set-Cookie', `qsession=${sid}; HttpOnly; Path=/; SameSite=Lax; Max-Age=86400${PUBLIC_BASE_URL.startsWith('https') ? '; Secure' : ''}`);
+      issueSessionCookie(res, user.email);
       res.redirect('/?auth=ok');
     } catch (e) {
       res.status(500).send(`Erreur OAuth : ${e.message}`);
     }
+  });
+
+  // ============ Login email/password (Brief E) ============
+
+  app.post('/auth/login', (req, res) => {
+    const ip = clientIp(req);
+    if (isRateLimited(ip)) {
+      return res.status(429).json({ ok: false, error: 'Trop de tentatives. Réessayez dans 15 minutes.' });
+    }
+    if (!PASSWORD_AUTH_ENABLED) {
+      recordAttempt(ip, Date.now());
+      return res.status(503).json({ ok: false, error: 'Login email/password non configuré (APP_LOGIN_EMAIL manquant).' });
+    }
+    const { email, password } = req.body || {};
+    if (!email || !password) {
+      recordAttempt(ip, Date.now());
+      return res.status(400).json({ ok: false, error: 'Champs requis : email, password' });
+    }
+    const emailNorm = String(email).trim().toLowerCase();
+    if (emailNorm !== APP_LOGIN_EMAIL || !passwordMatches(password)) {
+      recordAttempt(ip, Date.now());
+      return res.status(401).json({ ok: false, error: 'Email ou mot de passe invalide' });
+    }
+    issueSessionCookie(res, APP_LOGIN_EMAIL);
+    res.json({ ok: true, email: APP_LOGIN_EMAIL });
   });
 
   app.post('/auth/logout', (req, res) => {
@@ -219,22 +339,47 @@ function buildApp() {
   });
 
   function authMiddleware(req, res, next) {
-    if (!OAUTH_ENABLED) return next(); // dev: open access si OAuth non configuré
-    const sid = req.headers.cookie?.match(/qsession=([^;]+)/)?.[1];
-    const session = sid && sessions.get(sid);
-    if (!session) return res.status(401).json({ ok: false, error: 'Non authentifié' });
-    req.user = session;
-    next();
-  }
+      if (!AUTH_REQUIRED) return next(); // dev: open access si aucune auth configurée
+      const sid = req.headers.cookie?.match(/qsession=([^;]+)/)?.[1];
+      const session = sid && sessions.get(sid);
+      if (!session) return res.status(401).json({ ok: false, error: 'Non authentifié' });
+      req.user = session;
+      next();
+    }
 
-  app.get('/api/me', (req, res) => {
-    if (!OAUTH_ENABLED) return res.json({ email: 'dev-mode', authenticated: true, oauthEnabled: false });
-    const sid = req.headers.cookie?.match(/qsession=([^;]+)/)?.[1];
-    const session = sid && sessions.get(sid);
-    res.json({ email: session?.userEmail, authenticated: !!session, oauthEnabled: true });
+    app.get('/api/me', (req, res) => {
+      if (!AUTH_REQUIRED) {
+        return res.json({ email: 'dev-mode', authenticated: true, oauthEnabled: false, loginEnabled: false });
+      }
+      const sid = req.headers.cookie?.match(/qsession=([^;]+)/)?.[1];
+      const session = sid && sessions.get(sid);
+      res.json({
+        email: session?.userEmail,
+        authenticated: !!session,
+        oauthEnabled: OAUTH_ENABLED,
+        loginEnabled: PASSWORD_AUTH_ENABLED,
+      });
+    });
+
+  // ============ API Profil bailleur (Brief E) ============
+
+  app.get('/api/profil', authMiddleware, (req, res) => {
+    res.json(readProfil());
+  });
+
+  app.post('/api/profil', authMiddleware, (req, res) => {
+    try {
+      const clean = sanitizeProfil(req.body);
+      writeJson('profil.json', clean);
+      res.json({ ok: true, profil: clean });
+    } catch (e) {
+      const status = e.status || 500;
+      res.status(status).json({ ok: false, error: e.message });
+    }
   });
 
   // ============ API ============
+
 
   app.get('/api/locataires', authMiddleware, (req, res) => {
     res.json(readJson('locataires.json', []));
@@ -283,29 +428,29 @@ function buildApp() {
   });
 
   app.post('/api/send', authMiddleware, async (req, res) => {
-    const { to, subject, body, pdfBase64, filename } = req.body || {};
+    const { to, subject, body, pdfBase64, filename, from } = req.body || {};
     if (!to || !subject || !body || !pdfBase64 || !filename) {
       return res.status(400).json({ ok: false, error: 'Champs manquants' });
     }
-    const result = await sendMail({ to, subject, body, pdfBase64, filename });
+    const result = await sendMail({ to, subject, body, pdfBase64, filename, from });
     res.status(result.ok ? 200 : 500).json(result);
   });
 
   // ============ API Template (Brief B) ============
 
   const DEFAULT_TEMPLATE = {
-    proprietaire: {
-      nom: 'Roland Ghaoui',
-      adresse: '92120 Montrouge, France',
-      telephone: '+33 6 XX XX XX XX',
-      email: 'roland@example.com',
-    },
-    mentionLegale: "Cette quittance annule tous les reçus qui auraient pu être établis précédemment en cas de paiement partiel du montant du présent terme. Elle est à conserver pendant trois ans par le locataire (article 7-1 de la loi n° 89-462 du 6 juillet 1989).",
-    lieuDefaut: 'Bahreïn',
-    signatureLabel: 'Le bailleur',
-    signatureLoiElan: true,
-    logoUrl: null,
-  };
+      proprietaire: {
+        nom: '',
+        adresse: '',
+        telephone: '',
+        email: '',
+      },
+      mentionLegale: "Cette quittance annule tous les reçus qui auraient pu être établis précédemment en cas de paiement partiel du montant du présent terme. Elle est à conserver pendant trois ans par le locataire (article 7-1 de la loi n° 89-462 du 6 juillet 1989).",
+      lieuDefaut: '',
+      signatureLabel: 'Le bailleur',
+      signatureLoiElan: true,
+      logoUrl: null,
+    };
 
   function sanitizeTemplate(input) {
     const t = input && typeof input === 'object' ? input : {};
@@ -430,8 +575,12 @@ function buildApp() {
       return res.status(400).json({ ok: false, error: 'Locataire sans email' });
     }
 
-    // 3. Charger le template (propriétaire + lieuDefaut)
+    // 3. Charger le template (propriétaire + lieuDefaut) puis le profil (Brief E)
+    //    Le profil a priorité sur le template pour nom, email, lieu.
     const tpl = readJson('template.json', null) || DEFAULT_TEMPLATE;
+    const profil = readProfil();
+    const proprietaireNom = (profil && profil.nom) || (tpl.proprietaire && tpl.proprietaire.nom) || '';
+    const lieuDefaut = (profil && profil.lieuDefaut) || tpl.lieuDefaut || '';
 
     // 4. Construire les données du PDF
     const loyerHC = (typeof loc.loyerHC === 'number') ? loc.loyerHC : 0;
@@ -445,7 +594,7 @@ function buildApp() {
     const dateEmission = `${dd}/${mm}/${yyyy}`;
 
     const pdfData = {
-      proprietaire: (tpl.proprietaire && tpl.proprietaire.nom) || DEFAULT_TEMPLATE.proprietaire.nom,
+      proprietaire: proprietaireNom,
       locataire: (loc.prenom || loc.nom) ? { prenom: loc.prenom || '', nom: loc.nom || '' } : (loc.nom || ''),
       adresse: adresseLocataire(loc),
       mois: paiement.mois,
@@ -453,7 +602,7 @@ function buildApp() {
       loyerHC,
       charges,
       total,
-      lieu: tpl.lieuDefaut || DEFAULT_TEMPLATE.lieuDefaut,
+      lieu: lieuDefaut,
       dateEmission,
     };
 
@@ -490,6 +639,7 @@ function buildApp() {
       body: '<p>Bonjour,</p><p>Veuillez trouver ci-joint votre quittance de loyer pour ' + paiement.mois + ' ' + paiement.annee + '.</p><p>Cordialement</p>',
       pdfBase64,
       filename,
+      from: (profil && profil.email) || SMTP_USER || '',
     });
 
     if (!mailResult.ok) {
@@ -512,6 +662,7 @@ function buildApp() {
       sha256,
       filename,
       messageId: mailResult.messageId,
+      from: mailResult.from,
       paiement: updated,
     });
   });
@@ -526,7 +677,9 @@ if (require.main === module) {
   app.listen(PORT, HOST, () => {
     console.log(`Quittances server listening on http://${HOST}:${PORT}`);
     console.log(`PUBLIC_BASE_URL = ${PUBLIC_BASE_URL}`);
-    console.log(`OAuth = ${OAUTH_ENABLED ? 'ON' : 'OFF (dev mode)'} for ${ALLOWED_EMAILS.join(', ') || '(none)'}`);
+    console.log(`OAuth = ${OAUTH_ENABLED ? 'ON' : 'OFF'} for ${ALLOWED_EMAILS.join(', ') || '(none)'}`);
+    console.log(`Login email/password = ${PASSWORD_AUTH_ENABLED ? 'ON for ' + APP_LOGIN_EMAIL : 'OFF'}`);
+    console.log(`AUTH_REQUIRED = ${AUTH_REQUIRED}`);
     console.log(`DATA_DIR = ${DATA_DIR}`);
   });
 }

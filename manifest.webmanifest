@@ -1,7 +1,7 @@
 {
   "name": "Quittances de Loyer",
   "short_name": "Quittances",
-  "description": "Application de gestion des quittances de loyer pour Roland Ghaoui",
+  "description": "Quittances de loyer — application web de gestion",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
