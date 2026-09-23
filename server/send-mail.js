@@ -241,13 +241,35 @@ function buildApp() {
   });
 
   app.post('/api/locataires', authMiddleware, (req, res) => {
-    const list = readJson('locataires.json', []);
-    const { nom, email, adresse } = req.body || {};
-    if (!nom || !email || !adresse) return res.status(400).json({ ok: false, error: 'Champs manquants' });
-    list.push({ nom, email, adresse });
-    writeJson('locataires.json', list);
-    res.json({ ok: true, locataires: list });
-  });
+      const list = readJson('locataires.json', []);
+      const body = req.body || {};
+      const { prenom, nom, email, adresse, loyerHC, charges, dateEntree, bailRef } = body;
+      // Champs obligatoires (rétro-compat Briefs précédents)
+      if (!nom || !email || !adresse) return res.status(400).json({ ok: false, error: 'Champs manquants : nom, email, adresse' });
+      // Champs optionnels Brief A — valeurs par défaut si absents (rétro-compat)
+      const entry = {
+        id: 'loc_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6),
+        prenom: prenom || '',
+        nom: String(nom),
+        email: String(email),
+        adresse: typeof adresse === 'string'
+          ? adresse
+          : {
+              rue: adresse.rue || '',
+              complement: adresse.complement || '',
+              cp: adresse.cp || '',
+              ville: adresse.ville || '',
+            },
+        loyerHC: typeof loyerHC === 'number' ? loyerHC : null,
+        charges: typeof charges === 'number' ? charges : null,
+        dateEntree: dateEntree || null,
+        bailRef: bailRef || null,
+        creeLe: new Date().toISOString(),
+      };
+      list.push(entry);
+      writeJson('locataires.json', list);
+      res.json({ ok: true, locataires: list, id: entry.id });
+    });
 
   app.get('/api/historique', authMiddleware, (req, res) => {
     res.json(readJson('historique.json', []));
