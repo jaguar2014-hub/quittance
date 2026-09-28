@@ -249,35 +249,26 @@ async function getUserinfo(accessToken) {
 const ROOT = path.join(__dirname, '..');
 
 function buildApp() {
-  // Init DB avant de câbler les routes (login/signup/forgot en dépendent).
-  // On log tout explicitement car Render cache stderr en production.
-  console.log(`[startup] openDb(${DATA_DIR})...`);
-  let dbInitError = null;
+  // Init DB avant de câbler les routes (login/signup/forgot en dépendent)
   try {
     dbModule.openDb(DATA_DIR);
-    const seedResult = dbModule.seedAdminIfNeeded();
-    console.log(`[startup] DB OK on ${DATA_DIR}, seed=${JSON.stringify(seedResult || {})}`);
+    dbModule.seedAdminIfNeeded();
   } catch (e) {
-    console.error('[startup] DB INIT FAILED on', DATA_DIR, ':', e.message);
-    dbInitError = e;
-    // Fallback Render free : /data peut être read-only, on bascule sur /tmp/data
+    // Render free : /data peut être read-only. Fallback automatique sur /tmp/data
     if (DATA_DIR !== '/tmp/data') {
+      console.warn('[startup] DB init failed on', DATA_DIR, '-', e.message, '→ fallback /tmp/data');
       try {
-        console.log('[startup] retry on /tmp/data...');
+        process.env.DATA_DIR = '/tmp/data';
         dbModule.openDb('/tmp/data');
-        const seedResult = dbModule.seedAdminIfNeeded();
-        console.log(`[startup] DB OK on /tmp/data (fallback), seed=${JSON.stringify(seedResult || {})}`);
+        dbModule.seedAdminIfNeeded();
       } catch (e2) {
-        console.error('[startup] DB INIT FAILED on /tmp/data too:', e2.message);
+        console.error('[startup] DB init failed on /tmp/data too:', e2.message);
       }
     }
   }
   // Si on a pu ouvrir la DB → login activé (même si APP_LOGIN_EMAIL n'est pas dans l'env)
-  try { dbModule.getDb(); PASSWORD_AUTH_ENABLED = true; console.log('[startup] PASSWORD_AUTH_ENABLED=true'); } catch (e) {
-    console.error('[startup] getDb failed:', e.message);
-  }
+  try { dbModule.getDb(); PASSWORD_AUTH_ENABLED = true; } catch {}
   AUTH_REQUIRED = OAUTH_ENABLED || PASSWORD_AUTH_ENABLED;
-  console.log(`[startup] AUTH_REQUIRED=${AUTH_REQUIRED}, OAUTH=${OAUTH_ENABLED}`);
 
     // Fermeture propre de SQLite sur SIGTERM/SIGINT pour éviter le crash natif
       // better-sqlite3 à la fin du process (Node 24 assertion RemoveEnvironmentCleanupHook).
@@ -307,7 +298,6 @@ function buildApp() {
           dataDir: DATA_DIR,
           publicBaseUrl: PUBLIC_BASE_URL,
           signupEnabled: true,
-          version: 'v2.1.0-912ed2c',
         }));
 
   // ============ AUTH ============
@@ -321,31 +311,7 @@ function buildApp() {
         return sid;
       }
 
-    // Endpoint de diagnostic DB (pour debug Render où les logs sont inaccessibles)
-    app.get('/api/debug-db', (req, res) => {
-      const out = { dataDir: DATA_DIR, dbOpen: false, usersCount: 0, error: null, sqliteVersion: null };
-      try {
-        const db = dbModule.getDb();
-        out.dbOpen = true;
-        out.usersCount = db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
-        out.sqliteVersion = db.prepare('SELECT sqlite_version() AS v').get().v;
-        // Vérifie que DATA_DIR est writable
-        try {
-          const test = path.join(DATA_DIR, '.write-test');
-          fs.writeFileSync(test, 'ok');
-          fs.unlinkSync(test);
-          out.dataDirWritable = true;
-        } catch (e) {
-          out.dataDirWritable = false;
-          out.writeError = e.message;
-        }
-      } catch (e) {
-        out.error = e.message;
-      }
-      res.json(out);
-    });
-
-  app.get('/auth/google/start', (req, res) => {
+    app.get('/auth/google/start', (req, res) => {
     if (!OAUTH_ENABLED) return res.status(503).send('OAuth non configuré. Voir GOOGLE_OAUTH_SETUP.md');
     const state = makeState();
     const verifier = makeVerifier();
