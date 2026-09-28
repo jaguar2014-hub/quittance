@@ -287,13 +287,37 @@ function buildApp() {
   // ============ AUTH ============
 
   // Émet un cookie qsession pour un email donné (utilisé par OAuth + login simple)
-  function issueSessionCookie(res, email) {
-      const sid = makeSessionId();
-      sessions.set(sid, { userEmail: email, createdAt: Date.now() });
-      res.setHeader('Set-Cookie',
-        `qsession=${sid}; HttpOnly; Path=/; SameSite=Lax; Max-Age=86400${PUBLIC_BASE_URL.startsWith('https') ? '; Secure' : ''}`);
-      return sid;
-    }
+    function issueSessionCookie(res, email) {
+        const sid = makeSessionId();
+        sessions.set(sid, { userEmail: email, createdAt: Date.now() });
+        res.setHeader('Set-Cookie',
+          `qsession=${sid}; HttpOnly; Path=/; SameSite=Lax; Max-Age=86400${PUBLIC_BASE_URL.startsWith('https') ? '; Secure' : ''}`);
+        return sid;
+      }
+
+    // Endpoint de diagnostic DB (pour debug Render où les logs sont inaccessibles)
+    app.get('/api/debug-db', (req, res) => {
+      const out = { dataDir: DATA_DIR, dbOpen: false, usersCount: 0, error: null, sqliteVersion: null };
+      try {
+        const db = dbModule.getDb();
+        out.dbOpen = true;
+        out.usersCount = db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
+        out.sqliteVersion = db.prepare('SELECT sqlite_version() AS v').get().v;
+        // Vérifie que DATA_DIR est writable
+        try {
+          const test = path.join(DATA_DIR, '.write-test');
+          fs.writeFileSync(test, 'ok');
+          fs.unlinkSync(test);
+          out.dataDirWritable = true;
+        } catch (e) {
+          out.dataDirWritable = false;
+          out.writeError = e.message;
+        }
+      } catch (e) {
+        out.error = e.message;
+      }
+      res.json(out);
+    });
 
   app.get('/auth/google/start', (req, res) => {
     if (!OAUTH_ENABLED) return res.status(503).send('OAuth non configuré. Voir GOOGLE_OAUTH_SETUP.md');
