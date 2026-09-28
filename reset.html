@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1a73e8">
+<title>Réinitialiser le mot de passe — Quittances de loyer</title>
+<style>
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: #f7f8fa; margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px; }
+  .card { background: #fff; padding: 24px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.08); max-width: 420px; width: 100%; }
+  h2 { margin: 0 0 8px; font-size: 22px; color: #202124; }
+  p { color: #5c5f64; font-size: 14px; line-height: 1.5; }
+  label { display: block; margin-top: 12px; font-size: 13px; color: #202124; font-weight: 500; }
+  input { width: 100%; padding: 10px 12px; border: 1px solid #dadce0; border-radius: 6px; font-size: 14px; box-sizing: border-box; margin-top: 4px; }
+  input:focus { outline: 0; border-color: #1a73e8; }
+  button.primary { background: #1a73e8; color: #fff; border: 0; padding: 11px 18px; border-radius: 6px; font-size: 14px; font-weight: 500; cursor: pointer; margin-top: 16px; width: 100%; }
+  button.primary:disabled { opacity: .5; cursor: not-allowed; }
+  button.secondary { background: transparent; color: #1a73e8; border: 0; padding: 8px; cursor: pointer; font-size: 13px; margin-top: 8px; }
+  .msg { padding: 10px 12px; border-radius: 6px; font-size: 13px; margin-top: 12px; }
+  .msg.error { background: #fce8e6; color: #c5221f; }
+  .msg.success { background: #e6f4ea; color: #137333; }
+  .help { font-size: 12px; color: #80868b; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h2>Réinitialiser le mot de passe</h2>
+  <p>Saisissez votre nouveau mot de passe. Le lien est valide 15 minutes.</p>
+  <form id="form-reset">
+    <label for="newPassword">Nouveau mot de passe</label>
+    <input type="password" id="newPassword" autocomplete="new-password" minlength="8" required>
+    <p class="help">8 caractères minimum.</p>
+    <label for="confirm">Confirmation</label>
+    <input type="password" id="confirm" autocomplete="new-password" minlength="8" required>
+    <button type="submit" class="primary" id="btn-submit">Réinitialiser</button>
+  </form>
+  <div id="msg"></div>
+  <button class="secondary" id="btn-back" style="display:none">← Retour à la connexion</button>
+</div>
+<script>
+const params = new URLSearchParams(location.search);
+const token = params.get('token');
+const form = document.getElementById('form-reset');
+const msg = document.getElementById('msg');
+const btn = document.getElementById('btn-submit');
+const back = document.getElementById('btn-back');
+
+if (!token) {
+  msg.className = 'msg error';
+  msg.textContent = 'Lien invalide : token manquant dans l\'URL.';
+  form.style.display = 'none';
+  back.style.display = 'block';
+}
+
+function showMsg(text, kind) {
+  msg.className = 'msg ' + kind;
+  msg.textContent = text;
+}
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const newPassword = document.getElementById('newPassword').value;
+  const confirm = document.getElementById('confirm').value;
+  if (newPassword !== confirm) {
+    showMsg('Les deux mots de passe ne correspondent pas.', 'error');
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = 'Réinitialisation...';
+  try {
+    const r = await fetch('/auth/reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, newPassword }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (r.ok && j.ok) {
+      showMsg('Mot de passe réinitialisé. Redirection vers la page de connexion...', 'success');
+      form.style.display = 'none';
+      back.style.display = 'block';
+      setTimeout(() => { location.href = '/?reset=ok'; }, 2000);
+    } else {
+      showMsg(j.error || ('Erreur ' + r.status), 'error');
+      btn.disabled = false;
+      btn.textContent = 'Réinitialiser';
+    }
+  } catch (err) {
+    showMsg('Erreur réseau : ' + err.message, 'error');
+    btn.disabled = false;
+    btn.textContent = 'Réinitialiser';
+  }
+});
+
+back.addEventListener('click', () => { location.href = '/'; });
+</script>
+</body>
+</html>

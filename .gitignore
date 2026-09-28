@@ -7,3 +7,4 @@ output-*.pdf
 test-send-*.js
 launch.bat
 .cu-journal/
+server/_sm_patched.js

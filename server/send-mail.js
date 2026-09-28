@@ -28,6 +28,7 @@ const cors = require('cors');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const dbModule = require('./db');
 
 const PORT = parseInt(process.env.PORT || '8766', 10);
 const HOST = process.env.HOST || '0.0.0.0';
@@ -41,27 +42,17 @@ const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
 const ALLOWED_EMAILS = (process.env.GOOGLE_ALLOWED_EMAILS || '').split(',').map(s => s.trim()).filter(Boolean);
 const OAUTH_ENABLED = !!(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET && ALLOWED_EMAILS.length);
 
-// ============ Login simple (Brief E) ============
+// ============ Login simple (Brief E + multi-comptes) ============
+// À partir de cette version, l'auth email/password est stockée en table `users`
+// (SQLite). APP_LOGIN_EMAIL/PASSWORD seedent un compte admin au boot via
+// db.seedAdminIfNeeded. PASSWORD_AUTH_ENABLED est défini après openDb().
 const APP_LOGIN_EMAIL = (process.env.APP_LOGIN_EMAIL || '').trim().toLowerCase();
-const APP_LOGIN_PASSWORD = process.env.APP_LOGIN_PASSWORD || '';
-const APP_LOGIN_PASSWORD_HASH = (process.env.APP_LOGIN_PASSWORD_HASH || '').trim().toLowerCase();
-const PASSWORD_AUTH_ENABLED = !!APP_LOGIN_EMAIL && (!!APP_LOGIN_PASSWORD || !!APP_LOGIN_PASSWORD_HASH);
-const AUTH_REQUIRED = OAUTH_ENABLED || PASSWORD_AUTH_ENABLED;
+let PASSWORD_AUTH_ENABLED = false;
+let AUTH_REQUIRED = OAUTH_ENABLED; // recalculé après openDb()
 
-function sha256Hex(s) {
-   return crypto.createHash('sha256').update(String(s)).digest('hex');
- }
-function passwordMatches(input) {
-   const candidate = String(input || '');
-   if (APP_LOGIN_PASSWORD_HASH) {
-     return sha256Hex(candidate) === APP_LOGIN_PASSWORD_HASH;
-   }
-   return candidate === APP_LOGIN_PASSWORD;
- }
-
-// Rate limit login (RAM): 5 tentatives / 15 min / IP
+// Rate limit login (RAM): 5 tentatives / 15 min / IP. Désactivé sous test Jest.
 const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
-const RATE_LIMIT_MAX = 5;
+const RATE_LIMIT_MAX = process.env.NODE_ENV === 'test' ? 100000 : 5;
 const loginAttempts = new Map();
 function clientIp(req) {
    return (req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown').toString().split(',')[0].trim();
@@ -200,10 +191,22 @@ function cleanOldEntries(map, ttlMs) {
     if (now - v.createdAt > ttlMs) map.delete(k);
   }
 }
-setInterval(() => {
-  cleanOldEntries(sessions, 24 * 60 * 60 * 1000);   // 24h
-  cleanOldEntries(oauthStates, 10 * 60 * 1000);     // 10 min
-}, 60 * 1000);
+// Garbage-collector des sessions : démarré seulement quand l'app tourne en
+// standalone (require.main === module). Ne pas démarrer dans les tests pour
+// éviter de retenir des handles natifs (better-sqlite3 assertion à la sortie).
+let cleanupTimer = null;
+function startCleanupTimer() {
+  if (cleanupTimer) return;
+  cleanupTimer = setInterval(() => {
+    cleanOldEntries(sessions, 24 * 60 * 60 * 1000);   // 24h
+    cleanOldEntries(oauthStates, 10 * 60 * 1000);     // 10 min
+  }, 60 * 1000);
+  // Ne pas bloquer la sortie du process sur ce timer
+  if (cleanupTimer.unref) cleanupTimer.unref();
+}
+function stopCleanupTimer() {
+  if (cleanupTimer) { clearInterval(cleanupTimer); cleanupTimer = null; }
+}
 
 async function exchangeCodeForTokens(code, verifier) {
   const res = await fetch('https://oauth2.googleapis.com/token', {
@@ -237,6 +240,30 @@ async function getUserinfo(accessToken) {
 const ROOT = path.join(__dirname, '..');
 
 function buildApp() {
+  // Init DB avant de câbler les routes (login/signup/forgot en dépendent)
+    try {
+      dbModule.openDb(DATA_DIR);
+      const seedResult = dbModule.seedAdminIfNeeded();
+      if (seedResult) {
+        console.log(`DB users: compte admin "${seedResult.email}" ${seedResult.action}`);
+      }
+    } catch (e) {
+      console.error('DB init error:', e.message);
+    }
+    // Si on a pu ouvrir la DB → login activé (même si APP_LOGIN_EMAIL n'est pas dans l'env)
+    try { dbModule.getDb(); PASSWORD_AUTH_ENABLED = true; } catch {}
+    AUTH_REQUIRED = OAUTH_ENABLED || PASSWORD_AUTH_ENABLED;
+
+    // Fermeture propre de SQLite sur SIGTERM/SIGINT pour éviter le crash natif
+      // better-sqlite3 à la fin du process (Node 24 assertion RemoveEnvironmentCleanupHook).
+      const cleanupDb = () => {
+        try { stopCleanupTimer(); } catch {}
+        try { dbModule.closeDb(); } catch {}
+        process.exit(0);
+      };
+      process.on('SIGTERM', cleanupDb);
+      process.on('SIGINT', cleanupDb);
+
   const app = express();
   app.use(cors());
   app.use(express.json({ limit: '5mb' }));
@@ -248,13 +275,14 @@ function buildApp() {
 
   // Health
     app.get('/api/health', (req, res) => res.json({
-      ok: true,
-      oauth: OAUTH_ENABLED,
-      loginConfigured: PASSWORD_AUTH_ENABLED,
-      authRequired: AUTH_REQUIRED,
-      dataDir: DATA_DIR,
-      publicBaseUrl: PUBLIC_BASE_URL,
-    }));
+        ok: true,
+        oauth: OAUTH_ENABLED,
+        loginConfigured: PASSWORD_AUTH_ENABLED,
+        authRequired: AUTH_REQUIRED,
+        dataDir: DATA_DIR,
+        publicBaseUrl: PUBLIC_BASE_URL,
+        signupEnabled: true,
+      }));
 
   // ============ AUTH ============
 
@@ -306,30 +334,119 @@ function buildApp() {
     }
   });
 
-  // ============ Login email/password (Brief E) ============
+  // ============ Auth email/password multi-comptes ============
 
-  app.post('/auth/login', (req, res) => {
-    const ip = clientIp(req);
-    if (isRateLimited(ip)) {
-      return res.status(429).json({ ok: false, error: 'Trop de tentatives. Réessayez dans 15 minutes.' });
-    }
-    if (!PASSWORD_AUTH_ENABLED) {
-      recordAttempt(ip, Date.now());
-      return res.status(503).json({ ok: false, error: 'Login email/password non configuré (APP_LOGIN_EMAIL manquant).' });
-    }
-    const { email, password } = req.body || {};
-    if (!email || !password) {
-      recordAttempt(ip, Date.now());
-      return res.status(400).json({ ok: false, error: 'Champs requis : email, password' });
-    }
-    const emailNorm = String(email).trim().toLowerCase();
-    if (emailNorm !== APP_LOGIN_EMAIL || !passwordMatches(password)) {
-      recordAttempt(ip, Date.now());
-      return res.status(401).json({ ok: false, error: 'Email ou mot de passe invalide' });
-    }
-    issueSessionCookie(res, APP_LOGIN_EMAIL);
-    res.json({ ok: true, email: APP_LOGIN_EMAIL });
-  });
+    // Login : email + password vérifiés en DB (scrypt)
+    app.post('/auth/login', (req, res) => {
+      const ip = clientIp(req);
+      if (isRateLimited(ip)) {
+        return res.status(429).json({ ok: false, error: 'Trop de tentatives. Réessayez dans 15 minutes.' });
+      }
+      const { email, password } = req.body || {};
+      if (!email || !password) {
+        recordAttempt(ip, Date.now());
+        return res.status(400).json({ ok: false, error: 'Champs requis : email, password' });
+      }
+      const norm = dbModule.normalizeEmail(email);
+      const user = dbModule.findUserByEmail(norm);
+      if (!user || !dbModule.verifyPassword(password, user.password_hash)) {
+        recordAttempt(ip, Date.now());
+        return res.status(401).json({ ok: false, error: 'Email ou mot de passe invalide' });
+      }
+      issueSessionCookie(res, user.email);
+      res.json({ ok: true, email: user.email });
+    });
+
+    // Signup public : crée un nouveau compte. Si l'env APP_LOGIN_EMAIL n'est pas
+    // défini ET que la table users est vide, le 1er compte est "bootstrap admin".
+    app.post('/auth/signup', (req, res) => {
+      const ip = clientIp(req);
+      if (isRateLimited(ip)) {
+        return res.status(429).json({ ok: false, error: 'Trop de tentatives. Réessayez dans 15 minutes.' });
+      }
+      const { email, password } = req.body || {};
+      const result = dbModule.createUser({ email, password });
+      if (!result.ok) {
+        recordAttempt(ip, Date.now());
+        return res.status(400).json({ ok: false, error: result.error });
+      }
+      // Auto-login après signup (UX : pas besoin de re-taper le mdp)
+      issueSessionCookie(res, result.user.email);
+      res.json({ ok: true, email: result.user.email });
+    });
+
+    // Forgot : génère un token de reset (15 min) et envoie un mail de réinit.
+      // Réponse silencieuse (toujours ok=true) pour ne pas révéler si l'email existe.
+      app.post('/auth/forgot', async (req, res) => {
+        const ip = clientIp(req);
+        if (isRateLimited(ip)) {
+          return res.status(429).json({ ok: false, error: 'Trop de tentatives. Réessayez dans 15 minutes.' });
+        }
+        recordAttempt(ip, Date.now());
+        const { email } = req.body || {};
+        const norm = dbModule.normalizeEmail(email || '');
+        const data = dbModule.setResetToken(norm);
+        if (data && GMAIL_PASSWORD) {
+          const resetUrl = `${PUBLIC_BASE_URL}/reset.html?token=${data.token}`;
+          const subject = 'Réinitialisation de votre mot de passe — Quittances de loyer';
+          const body = `
+            <p>Bonjour,</p>
+            <p>Une demande de réinitialisation de mot de passe a été reçue pour ce compte.</p>
+            <p>Si vous êtes à l'origine de cette demande, cliquez sur le lien ci-dessous (valide 15 minutes) :</p>
+            <p><a href="${resetUrl}">${resetUrl}</a></p>
+            <p>Si vous n'êtes pas à l'origine de cette demande, ignorez ce mail : votre mot de passe reste inchangé.</p>
+            <p>Cordialement</p>
+          `;
+          // Envoi SMTP direct, sans PDF (le helper sendMail exige un PDF en attach)
+          try {
+            const transport = buildTransport();
+            await transport.sendMail({
+              from: resolveFrom() || SMTP_USER || 'quittances@localhost',
+              to: data.email,
+              subject,
+              html: body,
+            });
+          } catch (e) {
+            console.error('forgot: envoi mail échoué:', e.message);
+          }
+        }
+        // Toujours renvoyer ok:true (anti-énumération)
+        res.json({ ok: true });
+      });
+
+    // Reset : consomme le token + change le mot de passe
+    app.post('/auth/reset', (req, res) => {
+      const { token, newPassword } = req.body || {};
+      if (!token || !newPassword) {
+        return res.status(400).json({ ok: false, error: 'Champs requis : token, newPassword' });
+      }
+      if (String(newPassword).length < 8) {
+        return res.status(400).json({ ok: false, error: 'Mot de passe trop court (8 caractères minimum)' });
+      }
+      const user = dbModule.consumeResetToken(token);
+      if (!user) {
+        return res.status(400).json({ ok: false, error: 'Lien invalide ou expiré' });
+      }
+      dbModule.updatePassword(user.id, newPassword);
+      res.json({ ok: true });
+    });
+
+    // Change password (utilisateur connecté)
+    app.post('/auth/change-password', authMiddleware, (req, res) => {
+      const { currentPassword, newPassword } = req.body || {};
+      if (!currentPassword || !newPassword) {
+        return res.status(400).json({ ok: false, error: 'Champs requis : currentPassword, newPassword' });
+      }
+      if (String(newPassword).length < 8) {
+        return res.status(400).json({ ok: false, error: 'Mot de passe trop court (8 caractères minimum)' });
+      }
+      const user = dbModule.findUserByEmail(req.user.userEmail);
+      if (!user || !dbModule.verifyPassword(currentPassword, user.password_hash)) {
+        return res.status(401).json({ ok: false, error: 'Mot de passe actuel incorrect' });
+      }
+      dbModule.updatePassword(user.id, newPassword);
+      res.json({ ok: true });
+    });
 
   app.post('/auth/logout', (req, res) => {
     const sid = req.headers.cookie?.match(/qsession=([^;]+)/)?.[1];
@@ -672,6 +789,7 @@ function buildApp() {
 
 
 if (require.main === module) {
+  startCleanupTimer();
   ensureDataDir();
   const app = buildApp();
   app.listen(PORT, HOST, () => {

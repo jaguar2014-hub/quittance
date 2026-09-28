@@ -82,17 +82,45 @@
 
   <!-- ============ ÉCRAN LOGIN ============ -->
   <section id="login-screen" class="card">
-    <h2>Connexion requise</h2>
-    <p id="login-intro">Cette application est protégée.</p>
+      <h2>Connexion requise</h2>
+      <p id="login-intro">Cette application est protégée.</p>
 
-    <!-- Login email/password (Brief E) -->
-    <form id="form-login" style="margin: 12px 0;">
-      <label for="login-email">Email</label>
-      <input type="email" id="login-email" name="login-email" placeholder="votre@email.com" autocomplete="username" required>
-      <label for="login-password">Mot de passe</label>
-      <input type="password" id="login-password" name="login-password" autocomplete="current-password" required>
-      <p style="margin-top:12px"><button type="submit" class="primary">Se connecter</button></p>
-    </form>
+      <!-- Onglets Connexion / Créer un compte -->
+      <div id="auth-tabs" style="display:flex; gap:0; margin:12px 0; border-bottom:1px solid #dadce0;">
+        <button type="button" id="tab-login" class="auth-tab active" style="background:none; border:0; padding:10px 16px; font-size:14px; font-weight:500; cursor:pointer; border-bottom:2px solid #1a73e8; color:#1a73e8;">Se connecter</button>
+        <button type="button" id="tab-signup" class="auth-tab" style="background:none; border:0; padding:10px 16px; font-size:14px; font-weight:500; cursor:pointer; border-bottom:2px solid transparent; color:#5c5f64;">Créer un compte</button>
+      </div>
+
+      <!-- Formulaire login -->
+      <form id="form-login" style="margin: 12px 0;">
+        <label for="login-email">Email</label>
+        <input type="email" id="login-email" name="login-email" placeholder="votre@email.com" autocomplete="username" required>
+        <label for="login-password">Mot de passe</label>
+        <input type="password" id="login-password" name="login-password" autocomplete="current-password" required>
+        <p style="margin-top:12px"><button type="submit" class="primary">Se connecter</button></p>
+        <p style="margin-top:8px"><button type="button" id="btn-forgot" class="secondary" style="background:transparent; color:#1a73e8; border:0; cursor:pointer; font-size:13px; padding:0;">Mot de passe oublié ?</button></p>
+      </form>
+
+      <!-- Formulaire signup (caché par défaut) -->
+      <form id="form-signup" style="margin: 12px 0; display:none;">
+        <label for="signup-email">Email</label>
+        <input type="email" id="signup-email" name="signup-email" placeholder="votre@email.com" autocomplete="username" required>
+        <label for="signup-password">Mot de passe</label>
+        <input type="password" id="signup-password" name="signup-password" autocomplete="new-password" minlength="8" required>
+        <p class="help" style="font-size:12px; color:#80868b; margin:4px 0 0;">8 caractères minimum.</p>
+        <label for="signup-password2" style="margin-top:12px;">Confirmation</label>
+        <input type="password" id="signup-password2" name="signup-password2" autocomplete="new-password" minlength="8" required>
+        <p style="margin-top:12px"><button type="submit" class="primary">Créer le compte</button></p>
+      </form>
+
+      <!-- Formulaire forgot (caché par défaut) -->
+      <form id="form-forgot" style="margin: 12px 0; display:none;">
+        <p style="font-size:13px;">Saisissez votre email. Si un compte existe, vous recevrez un lien de réinitialisation valable 15 minutes.</p>
+        <label for="forgot-email">Email</label>
+        <input type="email" id="forgot-email" name="forgot-email" placeholder="votre@email.com" autocomplete="username" required>
+        <p style="margin-top:12px"><button type="submit" class="primary">Envoyer le lien</button></p>
+        <p style="margin-top:8px"><button type="button" id="btn-back-login" class="secondary" style="background:transparent; color:#1a73e8; border:0; cursor:pointer; font-size:13px; padding:0;">← Retour à la connexion</button></p>
+      </form>
 
     <!-- Bouton Google (Brief E: caché si OAuth pas configuré) -->
     <div id="login-google-block" style="display:none; margin-top: 16px;">
@@ -347,9 +375,69 @@ document.getElementById('form-login').addEventListener('submit', async (e) => {
   }
 });
 
+// Multi-comptes : onglets Connexion / Signup + Forgot
+function showAuthTab(name) {
+  document.getElementById('form-login').style.display = name === 'login' ? 'block' : 'none';
+  document.getElementById('form-signup').style.display = name === 'signup' ? 'block' : 'none';
+  document.getElementById('form-forgot').style.display = name === 'forgot' ? 'block' : 'none';
+  document.getElementById('auth-tabs').style.display = name === 'forgot' ? 'none' : 'flex';
+  document.getElementById('tab-login').classList.toggle('active', name === 'login');
+  document.getElementById('tab-signup').classList.toggle('active', name === 'signup');
+  document.getElementById('tab-login').style.borderBottomColor = name === 'login' ? '#1a73e8' : 'transparent';
+  document.getElementById('tab-login').style.color = name === 'login' ? '#1a73e8' : '#5c5f64';
+  document.getElementById('tab-signup').style.borderBottomColor = name === 'signup' ? '#1a73e8' : 'transparent';
+  document.getElementById('tab-signup').style.color = name === 'signup' ? '#1a73e8' : '#5c5f64';
+  document.getElementById('login-error').textContent = '';
+}
+document.getElementById('tab-login').addEventListener('click', () => showAuthTab('login'));
+document.getElementById('tab-signup').addEventListener('click', () => showAuthTab('signup'));
+document.getElementById('btn-forgot').addEventListener('click', () => showAuthTab('forgot'));
+document.getElementById('btn-back-login').addEventListener('click', () => showAuthTab('login'));
+
+document.getElementById('form-signup').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const email = document.getElementById('signup-email').value.trim();
+  const password = document.getElementById('signup-password').value;
+  const password2 = document.getElementById('signup-password2').value;
+  const errEl = document.getElementById('login-error');
+  errEl.textContent = '';
+  if (password !== password2) {
+    errEl.textContent = 'Les deux mots de passe ne correspondent pas';
+    return;
+  }
+  try {
+    const r = await api('POST', '/auth/signup', { email, password });
+    if (r.ok) {
+      showApp(r.email);
+    }
+  } catch (err) {
+    errEl.textContent = err.message || 'Erreur lors de la création du compte';
+  }
+});
+
+document.getElementById('form-forgot').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const email = document.getElementById('forgot-email').value.trim();
+  const errEl = document.getElementById('login-error');
+  errEl.textContent = '';
+  try {
+    await api('POST', '/auth/forgot', { email });
+    errEl.style.color = '#137333';
+    errEl.textContent = 'Si un compte existe pour cet email, un lien de réinitialisation a été envoyé.';
+  } catch (err) {
+    errEl.style.color = '#dc3545';
+    errEl.textContent = err.message || 'Erreur';
+  }
+});
+
 // Erreur d'accès si ?auth=denied dans l'URL (Briefs précédents)
 if (location.search.includes('auth=denied')) {
   document.getElementById('login-error').textContent = 'Accès refusé : votre email n\'est pas dans la liste blanche.';
+}
+// Message post-reset (Brief E + multi-comptes)
+if (location.search.includes('reset=ok')) {
+  document.getElementById('login-error').style.color = '#137333';
+  document.getElementById('login-error').textContent = 'Mot de passe réinitialisé. Connectez-vous.';
 }
 
 // ============ TABS ============
