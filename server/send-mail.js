@@ -289,14 +289,15 @@ function buildApp() {
 
   // Health
     app.get('/api/health', (req, res) => res.json({
-        ok: true,
-        oauth: OAUTH_ENABLED,
-        loginConfigured: PASSWORD_AUTH_ENABLED,
-        authRequired: AUTH_REQUIRED,
-        dataDir: DATA_DIR,
-        publicBaseUrl: PUBLIC_BASE_URL,
-        signupEnabled: true,
-      }));
+          ok: true,
+          oauth: OAUTH_ENABLED,
+          loginConfigured: PASSWORD_AUTH_ENABLED,
+          authRequired: AUTH_REQUIRED,
+          dataDir: DATA_DIR,
+          publicBaseUrl: PUBLIC_BASE_URL,
+          signupEnabled: true,
+          version: 'v2.1.0-912ed2c',
+        }));
 
   // ============ AUTH ============
 
