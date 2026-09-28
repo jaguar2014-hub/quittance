@@ -252,14 +252,25 @@ function buildApp() {
   // Init DB avant de câbler les routes (login/signup/forgot en dépendent).
   // On log tout explicitement car Render cache stderr en production.
   console.log(`[startup] openDb(${DATA_DIR})...`);
+  let dbInitError = null;
   try {
     dbModule.openDb(DATA_DIR);
     const seedResult = dbModule.seedAdminIfNeeded();
-    console.log(`[startup] DB OK, seed=${JSON.stringify(seedResult || {})}`);
+    console.log(`[startup] DB OK on ${DATA_DIR}, seed=${JSON.stringify(seedResult || {})}`);
   } catch (e) {
-    console.error('[startup] DB INIT FAILED:', e.message, e.stack);
-    // On ne throw PAS : le serveur doit pouvoir démarrer même si la DB échoue
-    // (sinon health check Render le tue)
+    console.error('[startup] DB INIT FAILED on', DATA_DIR, ':', e.message);
+    dbInitError = e;
+    // Fallback Render free : /data peut être read-only, on bascule sur /tmp/data
+    if (DATA_DIR !== '/tmp/data') {
+      try {
+        console.log('[startup] retry on /tmp/data...');
+        dbModule.openDb('/tmp/data');
+        const seedResult = dbModule.seedAdminIfNeeded();
+        console.log(`[startup] DB OK on /tmp/data (fallback), seed=${JSON.stringify(seedResult || {})}`);
+      } catch (e2) {
+        console.error('[startup] DB INIT FAILED on /tmp/data too:', e2.message);
+      }
+    }
   }
   // Si on a pu ouvrir la DB → login activé (même si APP_LOGIN_EMAIL n'est pas dans l'env)
   try { dbModule.getDb(); PASSWORD_AUTH_ENABLED = true; console.log('[startup] PASSWORD_AUTH_ENABLED=true'); } catch (e) {
