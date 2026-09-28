@@ -75,7 +75,16 @@ function isRateLimited(ip) {
    return arr.length >= RATE_LIMIT_MAX;
  }
 
-const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
+const DATA_DIR = (() => {
+  // Sur Render free tier, /data peut être non-writable. /tmp est toujours dispo.
+  // Si DATA_DIR n'est pas défini ET qu'on est sur Render (RENDER=true), on bascule sur /tmp.
+  const envDir = process.env.DATA_DIR;
+  if (envDir) return envDir;
+  if (process.env.RENDER === 'true' || process.env.RENDER_EXTERNAL_URL) {
+    return '/tmp/data';
+  }
+  return path.join(__dirname, '..', 'data');
+})();
 
 // ============ Persistance disque ============
 
