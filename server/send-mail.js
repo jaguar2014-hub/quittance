@@ -240,19 +240,24 @@ async function getUserinfo(accessToken) {
 const ROOT = path.join(__dirname, '..');
 
 function buildApp() {
-  // Init DB avant de câbler les routes (login/signup/forgot en dépendent)
-    try {
-      dbModule.openDb(DATA_DIR);
-      const seedResult = dbModule.seedAdminIfNeeded();
-      if (seedResult) {
-        console.log(`DB users: compte admin "${seedResult.email}" ${seedResult.action}`);
-      }
-    } catch (e) {
-      console.error('DB init error:', e.message);
-    }
-    // Si on a pu ouvrir la DB → login activé (même si APP_LOGIN_EMAIL n'est pas dans l'env)
-    try { dbModule.getDb(); PASSWORD_AUTH_ENABLED = true; } catch {}
-    AUTH_REQUIRED = OAUTH_ENABLED || PASSWORD_AUTH_ENABLED;
+  // Init DB avant de câbler les routes (login/signup/forgot en dépendent).
+  // On log tout explicitement car Render cache stderr en production.
+  console.log(`[startup] openDb(${DATA_DIR})...`);
+  try {
+    dbModule.openDb(DATA_DIR);
+    const seedResult = dbModule.seedAdminIfNeeded();
+    console.log(`[startup] DB OK, seed=${JSON.stringify(seedResult || {})}`);
+  } catch (e) {
+    console.error('[startup] DB INIT FAILED:', e.message, e.stack);
+    // On ne throw PAS : le serveur doit pouvoir démarrer même si la DB échoue
+    // (sinon health check Render le tue)
+  }
+  // Si on a pu ouvrir la DB → login activé (même si APP_LOGIN_EMAIL n'est pas dans l'env)
+  try { dbModule.getDb(); PASSWORD_AUTH_ENABLED = true; console.log('[startup] PASSWORD_AUTH_ENABLED=true'); } catch (e) {
+    console.error('[startup] getDb failed:', e.message);
+  }
+  AUTH_REQUIRED = OAUTH_ENABLED || PASSWORD_AUTH_ENABLED;
+  console.log(`[startup] AUTH_REQUIRED=${AUTH_REQUIRED}, OAUTH=${OAUTH_ENABLED}`);
 
     // Fermeture propre de SQLite sur SIGTERM/SIGINT pour éviter le crash natif
       // better-sqlite3 à la fin du process (Node 24 assertion RemoveEnvironmentCleanupHook).
